@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *  
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *  
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -776,7 +776,7 @@ main (int argc, char **argv)
 #endif
 	  log_info ("Initiating quick shutdown");
 #ifdef _RENDEZVOUS
-	  stop_rendezvous ();
+	  /* stop_rendezvous (); */
 #endif
 	  sf_fastdown (NULL);
 	}

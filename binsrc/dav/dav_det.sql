@@ -2,7 +2,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2019 OpenLink Software
+--  Copyright (C) 1998-2021 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -53,7 +53,10 @@ create function DB.DBA.DAV_DET_NAME (
   if (isnull (id) or isinteger (id))
     return null;
 
-  return cast (id[0] as varchar);
+  if (isvector (id))
+    return cast (id[0] as varchar);
+
+  return null;
 }
 ;
 
@@ -63,7 +66,10 @@ create function DB.DBA.DAV_DET_DETCOL_ID (
   if (isnull (id) or isinteger (id))
     return id;
 
-  return cast (id[1] as integer);
+  if (isvector (id))
+    return cast (id[1] as integer);
+
+  return null;
 }
 ;
 
@@ -73,7 +79,10 @@ create function DB.DBA.DAV_DET_DAV_ID (
   if (isnull (id) or isinteger (id))
     return id;
 
-  return id[2];
+  if (isvector (id))
+    return id[2];
+
+  return null;
 }
 ;
 

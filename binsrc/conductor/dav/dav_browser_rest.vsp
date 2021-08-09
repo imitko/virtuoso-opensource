@@ -3,7 +3,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2019 OpenLink Software
+--  Copyright (C) 1998-2021 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -290,12 +290,14 @@
       {
         -- validate ACL rules
         {
+	  declare dav_aci any;
           declare exit handler for sqlstate '*'
           {
             _error := VALIDATE.DBA.clear (__SQL_MESSAGE);
             goto _end_share;
           };
-          DB.DBA.ACL_VALIDATE (WEBDAV.DBA.aci_params (params), 1);
+          dav_aci := WEBDAV.DBA.aci_params (params);
+          --DB.DBA.ACL_VALIDATE (dav_aci, 1);
         }
       _end_share:;
       }

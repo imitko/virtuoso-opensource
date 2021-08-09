@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -84,7 +84,7 @@ extern "C" {
 #include "virtpwd.h"
 #include "rdf_core.h"
 #include "shcompo.h"
-#include "http_client.h" /* for MD5Init and the like */
+#include "http_client.h" /* for MD5_Init and the like */
 #include "sparql.h"
 #include "aqueue.h"
 
@@ -4130,7 +4130,7 @@ bif_sprintf (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
       ptr++;
 
   format_char_found:
-    if (!ptr || !*ptr || !strchr ("dDiouxXeEfgcsRSIVU", *ptr) || ('R' != *ptr && modifier && '_' == modifier[0]))
+    if (!ptr || !*ptr || !strchr ("dDiouxXeEfgcsRSIVUH", *ptr) || ('R' != *ptr && modifier && '_' == modifier[0]))
       {
 	sqlr_new_error ("22023", "SR031", "Invalid format string for sprintf at escape %d", arg_inx);
       }
@@ -4307,6 +4307,20 @@ bif_sprintf (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
           goto get_next;
 	}
 	break;
+
+      case 'H':
+	{
+	  caddr_t arg, narrow_arg;
+	  if (arg_len || arg_prec)
+            sqlr_new_error ("22025", "SR037", "The HTTP escaping sprintf escape %d does not support modifiers", arg_inx);
+          bif_string_arg_for_sprintf (qst, args, arg_inx, szMe, 0, 0, 1, &arg, &narrow_arg);
+          http_value_esc (qst, ses, arg, NULL, DKS_ESC_DAV);
+          if (narrow_arg)
+            dk_free_box (narrow_arg);
+          goto get_next;
+	}
+	break;
+
       case 'D':
 	{
 	  int rb_type;
@@ -8090,6 +8104,9 @@ bif_check (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 
 #include "sql3.h"
 
+extern int scn3yylex (YYSTYPE *, yyscan_t);
+extern int scn3splityylex (YYSTYPE *, yyscan_t);
+
 caddr_t
 sql_lex_analyze (const char * str2, caddr_t * qst, int max_lexems, int use_strval, int find_lextype)
 {
@@ -11438,9 +11455,15 @@ bif_registry_get (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 {
   caddr_t res;
   caddr_t name = bif_string_arg (qst, args, 0, "registry_get");
+  caddr_t dflt = BOX_ELEMENTS (args) > 1 ? bif_string_or_null_arg (qst, args, 1, "registry_get") : NULL;
+
   IN_TXN;
   res = registry_get (name);
   LEAVE_TXN;
+
+  if (!res && dflt)
+    res = box_copy (dflt);
+
   return res;
 }
 
@@ -13371,6 +13394,18 @@ bif_set (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
       dk_free_box (charset_name);
       if (qi->qi_client->cli_ws)
 	qi->qi_client->cli_ws->ws_charset = charset ? charset : ws_default_charset;
+    }
+  else   if (0 == stricmp (opt, "HTTP_IN_CHARSET"))
+    {
+      caddr_t charset_name = sqlp_box_upcase (value);
+      char charset;
+      if (!strcmp (charset_name, "UTF-8"))
+	charset = 1 /*CHARSET_UTF8*/;
+      else
+	charset = 0;
+      dk_free_box (charset_name);
+      if (qi->qi_client->cli_ws)
+	qi->qi_client->cli_ws->ws_in_charset = charset;
     }
   else   if (0 == stricmp (opt, "MTS_2PC"))
     {
@@ -16462,11 +16497,11 @@ bif_rdf_checksum_int (caddr_t * qst, state_slot_t ** args, int op, const char *f
       {
         MD5_CTX ctx;
         memset (&ctx, 0, sizeof (MD5_CTX));
-        MD5Init (&ctx);
-        MD5Update (&ctx, arg_strg, box_length (arg_strg)-1);
+        MD5_Init (&ctx);
+        MD5_Update (&ctx, arg_strg, box_length (arg_strg)-1);
         res_len = MD5_SIZE;
         res = dk_alloc_box (res_len*2 + 1, DV_SHORT_STRING);
-        MD5Final ((unsigned char *) res, &ctx);
+        MD5_Final ((unsigned char *) res, &ctx);
         break;
       }
 #if !defined(OPENSSL_NO_SHA1) && defined (SHA_DIGEST_LENGTH)

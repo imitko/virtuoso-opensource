@@ -6,7 +6,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -304,7 +304,7 @@ dc_set_flags (data_col_t * dc, sql_type_t * sqt, dtp_t dcdtp)
       break;
     case DV_ANY:
       /* only set if dc_dtp does not contraditc, if it does, control falls through to default case */
-      if (0 == dcdtp || DV_ANY == dcdtp)
+      if (0 == dcdtp || DV_ANY == dcdtp || DCT_NUM_INLINE == dc->dc_type)
 	{
 	  dc->dc_dtp = DV_ANY;
 	  dc->dc_type = 0;

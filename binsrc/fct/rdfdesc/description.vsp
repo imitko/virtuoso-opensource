@@ -15,7 +15,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2019 OpenLink Software
+--  Copyright (C) 1998-2021 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -68,6 +68,15 @@
   declare metas, rset any;
   declare auto_sponge_on_empty_graph int;
   declare q_txt any;
+  declare safetolink integer;
+
+  set http_charset='utf-8';
+  { 
+    --  catch error when using old binaries
+    declare continue handler for sqlstate '*';
+    --  always treat narrow string boxes as UTF-8 encoded
+    set http_in_charset='UTF-8';
+  }
 
   if (registry_get ('fct_auto_sponge') = '1')
     auto_sponge_on_empty_graph := 1;
@@ -222,6 +231,11 @@ again:
   _S := page_resource_uri;
   proxy_iri := page_resource_uri;
 
+  safetolink:=0;
+  if(lower(rfc1808_parse_uri(page_resource_uri)[0]) in ('http','https','ftp')) {
+    safetolink:=1;
+  }
+
   b3s_dbg_out (dbg_out, 'page_resource_uri: ' || page_resource_uri);
   sp_mode := get_keyword ('sponger:get', params, 'add');
   sp_accept := get_keyword ('sponger:accept', params, '');
@@ -245,6 +259,8 @@ again:
   graph_perms_allow_sponge := sponge_request;
   view_mode := 'full';
   graph_perms := b3s_get_user_graph_permissions (_G, pageUrl, sponge_request, 0, NULL, NULL, graph_perms_allow_sponge, view_mode); 
+
+  b3s_dbg_out (dbg_out, 'effective user graph permissions: ' || sprintf('%d', graph_perms));
   if (view_mode = 'none')
   {
     -- User doesn't have read permission
@@ -304,7 +320,6 @@ again:
   --set_user_id (http_map_get ('vsp_uid'));
 
   odd_position := 0;
-  set http_charset='utf-8';
   set isolation = 'uncommitted';
 
   http_header ('Cache-Control: no-cache, must-revalidate\r\nPragma: no-cache\r\n');
@@ -409,10 +424,13 @@ again:
   if (not length (label))
     label := b3s_trunc_uri (page_resource_uri);
   if (vlbl <> 0) label := vlbl;
+  if (label like 'http%://%')
+    label := b3s_uri_percent_decode(label);
+
   declare desc_resource_uri varchar;
   declare desc_qr varchar;
   desc_qr := sprintf ('define sql:describe-mode "SPO" DESCRIBE <%s>', page_resource_uri);
-  desc_resource_uri := sprintf ('http://%{WSHost}s/sparql?query=%U&format=cxml', desc_qr);
+  desc_resource_uri := sprintf ('%s://%{WSHost}s/sparql?query=%U&format=cxml', protocol, desc_qr);
   --http_flush (1);
 
   declare plink_href varchar;
@@ -443,7 +461,7 @@ again:
 ?>
 <head>
     <base href="/fct/rdfdesc/" />
-    <title>About: <?vsp if (length (label)) http_value (label); else http_value (b3s_uri_curie (page_resource_uri));?></title>
+    <title>About: <?vsp if (length (label)) http_value (label); else http (b3s_uri_percent_decode(b3s_uri_curie (page_resource_uri)));?></title>
     <!--link rel="alternate" type="application/rdf+xml" href="<?=rdf_link?>" title="RDF" /-->
 
     <?vsp
@@ -495,20 +513,54 @@ again:
   </div> <!-- #HD -->
   <div id="MD">
     <div class="page_resource_info">
-	<h2>About: <a href="<?= case when page_resource_uri like
-    'nodeID://%' then b3s_http_url (page_resource_uri) else
-    page_resource_uri end ?>"><?vsp if (length(label)) http_value
-    (label); else http_value(b3s_uri_curie (page_resource_uri));
-    ?></a>&nbsp;&nbsp;&nbsp;<a class="desc_permalink" href="<?= case when page_resource_uri like
-    'nodeID://%' then b3s_http_url (page_resource_uri) else
-    page_resource_uri end ?>">Goto</a>&nbsp;<a class="desc_sponge_link"
-    href="/describe/?url=<?U page_resource_uri ?><?= case when sid is
+
+    <h2>About:
+
+      <?vsp
+      if (safetolink > 0)
+        {
+          http(sprintf('<a href="%s">',
+	    case when page_resource_uri like 'nodeID://%' then b3s_http_url (page_resource_uri) else page_resource_uri end));
+
+	  if (length (label))
+	    http_value (label);
+	  else
+	    http (b3s_uri_percent_decode(b3s_uri_curie(page_resource_uri)));
+	  http ('</a>\n');
+        }
+      else
+        {
+	  if (length(label))
+	    http_value(label);
+	  else
+	    http (b3s_uri_curie(page_resource_uri));
+        }
+      ?>
+    <a href="">
+    </a>&nbsp;&nbsp;&nbsp;
+    <?vsp
+      if(safetolink>0) {
+        http(sprintf('<a class="desc_permalink" href="%s">Goto</a>\n',
+          case when page_resource_uri like 'nodeID://%' then b3s_http_url (page_resource_uri) else page_resource_uri end
+        ));
+      }
+    ?>
+    &nbsp;
+    <a class="desc_sponge_link" href="/describe/?url=<?U page_resource_uri ?><?= case when sid is
     not null then '&sid=' || sid end ?>&amp;sponger:get=add"
     title="Click to generate local descriptor data for this entity"
-    id="sp_link" rel="nofollow">Sponge</a>
-&nbsp;<a class="desc_permalink" href="<?vsp http (fct_make_curie (sprintf ('%s&distinct=%d',  plink_href, equ (dist, 0)), lines)); ?>" title="This link enables you toggle between normalized and un-normalized views of data using by applying or note applying a DISTINCT operator"><?vsp if (dist) http ('Not'); ?>Distinct</a>
-&nbsp;<a class="desc_permalink" href="<?vsp http (fct_make_curie (sprintf ('%s&distinct=%d', plink_href, dist), lines)); ?>">Permalink</a>
+        id="sp_link" rel="nofollow">Sponge
+    </a>
+    &nbsp;
+    <a class="desc_permalink" href="<?vsp http (fct_make_curie (sprintf ('%s&distinct=%d',  plink_href, equ (dist, 0)), lines)); ?>" title="This link enables you toggle between normalized and un-normalized views of data using by applying or note applying a DISTINCT operator">
+    <?vsp if (dist) http ('Not'); ?>Distinct
+    </a>
+    &nbsp;
+    <a class="desc_permalink" href="<?vsp http(fct_make_curie (sprintf ('%s&distinct=%d', plink_href, dist), lines)); ?>">Permalink
+    </a>
+
     </h2>
+
       <div class="ds_inf_info">
 	    An Entity of Type : <a href="<?V e_type ?>"><?V e_type_label ?></a>,
 	    within Data Space : <a href="http://<?V host ?>"><?V host ?></a> associated with source <a href="usage.vsp?g=<?U _S ?><?V ses_parms ?>">document(s)</a><br/>
@@ -810,7 +862,7 @@ if (_subject <> '') {
 	<a href="/PivotViewer/?url=<?vsp http_url (desc_resource_uri); ?>" title="PivotViewer page for exploring results and generating new queries (Silverlight)" target="_blank">PivotViewer</a> 
 	|
 	<?vsp } ?>
-	<?vsp if (VAD_CHECK_VERSION ('rdf_mappers') is not null) { ?>
+	<?vsp if (0 and VAD_CHECK_VERSION ('rdf_mappers') is not null) { ?>
 	<a href="<?vsp http (rdfdesc_http_url (page_resource_uri)); ?>" target="_blank">Sponger</a>
 	|
 	<?vsp } ?>
@@ -849,6 +901,7 @@ if (_subject <> '') {
 	    src="//www.w3.org/Icons/valid-xhtml-rdfa"
 	    alt="Valid XHTML + RDFa" height="27" /></a>
 	</span>
+<?vsp fct_cctr(); ?>
 	<br />
 	<?vsp fct_virt_info (); ?><br />
 	<?vsp

@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -1651,7 +1651,8 @@ int adler32_of_buffer (unsigned char *data, size_t len);
 int32 sqlbif_rnd (int32* seed);
 #define BUF_SET_CK(buf) do { \
 	  int32 chk; \
-  	  RAND_pseudo_bytes (buf->bd_buffer, PAGE_SZ); \
+	  memset (buf->bf_buffer, 0xff, PAGE_SZ); \
+  	  RAND_bytes (buf->bd_buffer, 16); \
 	  chk = adler32_of_buffer (buf->bd_buffer, PAGE_SZ); \
 	  LONG_SET (buf->bd_buffer + PAGE_SZ, chk); \
 } while (0)

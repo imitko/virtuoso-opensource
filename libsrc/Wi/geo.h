@@ -4,7 +4,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -384,6 +384,10 @@ EXE_EXPORT (int, geo_XY_inoutside_polygon, (geoc pX, geoc pY, geo_t *g));
 EXE_EXPORT (void, geo_modify_by_translate, (geo_t *g, geoc dX, geoc dY, geoc dZ));
 EXE_EXPORT (void, geo_modify_by_transscale, (geo_t *g, geoc dX, geoc dY, geoc Xfactor, geoc Yfactor));
 EXE_EXPORT (void, geo_modify_by_affine2d, (geo_t *g, geoc XXa, geoc XYb, geoc YXd, geoc YYe, geoc Xoff, geoc Yoff));
+
+typedef caddr_t geo_pred_t (geo_t * g1, geo_t * g2, int op, double prec);
+extern geo_pred_t *geo_fallback_pred_cbk;
+EXE_EXPORT (void, geo_set_fallback_pred_cbk, (geo_pred_t *cbk));
 
 typedef geo_t *geo_srid_transform_cbk_t (caddr_t *qst, geo_t *g, int dest_srid, caddr_t *err_ret);
 extern geo_srid_transform_cbk_t *geo_default_srid_transform_cbk;

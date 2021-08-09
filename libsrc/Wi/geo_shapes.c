@@ -4,7 +4,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -2092,6 +2092,12 @@ ewkt_parse_2 (const char *strg, int dflt_srcode, caddr_t *err_ret)
 	  else
 	    ewkt_signal (&in, "Unsupported EWKT extension");
 	  tkn = ewkt_get_token (&in, &val);
+	}
+      if (0 == tkn)
+	{
+	  res = geo_alloc (GEO_NULL_SHAPE, 0, in.ewkt_srcode);
+	  res->XYbox.Xmin = res->XYbox.Xmax = res->XYbox.Ymin = res->XYbox.Ymax = geoc_FARAWAY;
+	  return res;
 	}
       if (EWKT_KWD_GEO_TYPE != tkn)
 	ewkt_signal (&in, "Valid type of spatial feature is expected");

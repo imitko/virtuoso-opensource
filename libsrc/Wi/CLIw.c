@@ -6,7 +6,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -39,9 +39,11 @@ extern int virt_wide_as_utf16;
 #define MAX_MESSAGE_LEN 0
 
 #ifdef STD_N_BYTES_IN_PCB
-#define N_BYTES_PER_CHAR  sizeof (wchar_t)
+#define N_BYTES_PER_CHAR        sizeof (wchar_t)
+#define N_BYTES_PER_CHAR_UTF16  sizeof (uint16)
 #else
-#define N_BYTES_PER_CHAR  1
+#define N_BYTES_PER_CHAR        1
+#define N_BYTES_PER_CHAR_UTF16  1
 #endif
 
 #define DEFINE_INPUT_NARROW(param) \
@@ -289,7 +291,7 @@ extern int virt_wide_as_utf16;
       dk_free_box ((box_t) sz##param); \
     } \
   if (pcb##param) \
-    *pcb##param = *_pcb##param * (wide_as_utf16 ? 2 : N_BYTES_PER_CHAR);
+    *pcb##param = *_pcb##param * (wide_as_utf16 ? N_BYTES_PER_CHAR_UTF16 : N_BYTES_PER_CHAR);
 
 
 #define DEFINE_OUTPUT_NONCHAR_NARROW(wide, len, pcb, con, type) \

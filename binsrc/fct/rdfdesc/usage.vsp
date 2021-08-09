@@ -15,7 +15,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2019 OpenLink Software
+--  Copyright (C) 1998-2021 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -356,7 +356,7 @@
 	<a href="/PivotViewer/?url=<?vsp http_url (desc_resource_uri); ?>" title="PivotViewer page for exploring results and generating new queries (Silverlight)" target="_blank">PivotViewer</a> 
 	|
 	<?vsp } ?>
-	<?vsp if (VAD_CHECK_VERSION ('rdf_mappers') is not null) { ?>
+	<?vsp if (0 and VAD_CHECK_VERSION ('rdf_mappers') is not null) { ?>
 	<a href="<?vsp http (rdfdesc_http_url (page_resource_uri)); ?>" target="_blank">Sponger</a>
 	|
 	<?vsp } ?>
@@ -393,6 +393,7 @@
 	    src="//www.w3.org/Icons/valid-xhtml-rdfa"
 	    alt="Valid XHTML + RDFa" height="27" /></a>
 	</span>
+<?vsp fct_cctr(); ?>
 	<br />
 	This work is licensed under a
 	<a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/">Creative Commons Attribution-Share Alike 3.0 Unported License</a>.<br />

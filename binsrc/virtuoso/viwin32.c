@@ -9,7 +9,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *  
- *  Copyright (C) 1998-2019 OpenLink Software
+ *  Copyright (C) 1998-2021 OpenLink Software
  *  
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -1593,7 +1593,7 @@ ApplicationMain (int argc, char **argv)
 	  if (serviceFlag)
 	    UpdateRunningServiceStatus (SERVICE_STOP_PENDING, 0);
 #ifdef _RENDEZVOUS
-	  stop_rendezvous ();
+	  /*stop_rendezvous ();*/
 #endif
 	  sf_fastdown (NULL);
 	}
