@@ -1222,10 +1222,16 @@ wcharset_by_name_or_dflt (ccaddr_t cs_name, query_instance_t *qi)
 int
 lang_match_to_accept_language_range (const char *lang, const char *key, const char *key_end)
 {
+  char * ptr;
   if ('*' == key[0])
     return 1;
   if (!strncasecmp (lang, key, key_end-key) && (('\0' == lang[key_end-key]) || ('-' == lang[key_end-key])))
     return 1 + (key_end-key);
+  if (NULL != (ptr = (strchr (key, '-'))) && ptr < key_end)
+    {
+       if (!strncasecmp (lang, key, ptr-key))
+        return 1 + (key_end-key);
+    }
   return 0;
 }
 
@@ -1287,7 +1293,10 @@ bif_langmatches_pct_http (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args
   static const char * bifname = "langmatches_pct_http";
   caddr_t lang = bif_string_arg (qst, args, 0, bifname);
   caddr_t line = bif_string_arg (qst, args, 1, bifname);
-  double q = get_q_of_lang_in_http_accept_language (lang, line);
+  double q;
+  if (!lang)
+    return box_num (0);
+  q = get_q_of_lang_in_http_accept_language (lang, line);
   return box_num (q * 100);
 }
 
