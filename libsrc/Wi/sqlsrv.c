@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2021 OpenLink Software
+ *  Copyright (C) 1998-2022 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -4354,7 +4354,10 @@ srv_global_init (char *mode)
       sf_shutdown (sf_make_new_log_name (wi_inst.wi_master), bootstrap_cli->cli_trx);
     }
   ddl_redo_undefined_triggers ();
-  srv_global_init_plugin_actions (&srv_global_init_postponed_actions, mode);
+  if (!f_read_from_rebuilt_database)
+    {
+      srv_global_init_plugin_actions (&srv_global_init_postponed_actions, mode);
+    }
   IN_TXN;
   lt_leave(bootstrap_cli->cli_trx);
   LEAVE_TXN;

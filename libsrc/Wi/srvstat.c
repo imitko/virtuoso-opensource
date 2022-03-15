@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2021 OpenLink Software
+ *  Copyright (C) 1998-2022 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -4838,6 +4838,7 @@ bif_stat_import (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 	{
       tb_sample_t smpl;
 	  caddr_t k = sc_ext_to_data (qi, smp[0]);
+#if 0				/* debug code dissabled */
 	  if (stat_trap)
 	    {
 	      caddr_t * k = (caddr_t*)smp[0];
@@ -4852,6 +4853,7 @@ bif_stat_import (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 		}
 	    }
 	  stat_adjust_key ((caddr_t *)k);
+#endif
 	  memzero (&smpl, sizeof (smpl));
 	  smpl.smp_time = approx_msec_real_time ();
 	  smpl.smp_card = unbox_float (smp[1]);

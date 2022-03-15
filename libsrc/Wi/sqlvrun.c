@@ -6,7 +6,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2021 OpenLink Software
+ *  Copyright (C) 1998-2022 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -53,7 +53,7 @@ int dc_init_sz = 10000;
 int32 dc_adjust_batch_sz_min_anytime = 12000;
 int dc_default_var_len = 8;
 int32 dc_batch_sz = 10000;
-int32 dc_max_batch_sz = 1000000 /*(1024 * 1024 * 4)  - 16 */ ;
+int32 dc_max_batch_sz = 100000 /*(1024 * 1024 * 4)  - 16 */ ;
 int32 dc_max_q_batch_sz = 1000000;
 int dc_str_buf_unit = 0x10000;
 size_t c_max_large_vec;
@@ -409,6 +409,9 @@ mp_data_col (mem_pool_t * mp, state_slot_t * ssl, int n_sets)
     dc->dc_sqt.sqt_col_dtp = ssl->ssl_sqt.sqt_col_dtp;
   dc->dc_n_places = n_sets;
   if (DV_STRING == dc->dc_dtp) GPF_T1 ("no dv string here");
+#ifndef NDEBUG
+  dc->dc_ssl = ssl;
+#endif
   return dc;
 }
 

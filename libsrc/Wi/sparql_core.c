@@ -4,7 +4,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2021 OpenLink Software
+ *  Copyright (C) 1998-2022 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -4733,6 +4733,11 @@ static const char *spar_unsafe_bif_names[] = {
   "REGISTRY_SET",
   "REGISTRY_SET_ALL",
   "STRING_TO_FILE",
+  "SEQUENCE_REMOVE",
+  "SEQUENCE_GET_ALL",
+  "SEQUENCE_NEXT_BOUNDED",
+  "SEQUENCE_NEXT",
+  "SEQUENCE_SET",
   "SYSTEM"
 };
 

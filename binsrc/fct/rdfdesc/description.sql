@@ -4,7 +4,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2021 OpenLink Software
+--  Copyright (C) 1998-2022 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -1076,7 +1076,7 @@ again:
    else if (__tag (_object) = 225)
      {
        http (sprintf ('<span %s>', rdfa));
-       http (charset_recode (_object, '_WIDE_', 'UTF-8'));
+       http (__box_flags_tweak (charset_recode (_object, '_WIDE_', 'UTF-8')));
        http ('</span>');
      }
    else if (__tag (_object) = 238)
