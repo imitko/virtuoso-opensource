@@ -114,12 +114,11 @@ create procedure DB.DBA.TTLP_RL_TRIPLE (
 }
 ;
 
-create procedure rdf_rl_type_id (in iri varchar)
+create procedure DB.DBA.RDF_RL_TYPE_ID (in iri varchar)
 {
   declare id, old_mode int;
-  declare t_iri_id, daq  any;
-  id := (select rdt_twobyte from rdf_datatype  where rdt_qname = iri);
-  if (id)
+  id := (select RDT_TWOBYTE from DB.DBA.RDF_DATATYPE where RDT_QNAME = iri);
+  if (id is not null)
     {
       rdf_cache_id ('t', iri, id);
       return id;
@@ -131,39 +130,35 @@ create procedure rdf_rl_type_id (in iri varchar)
     rollback work;
     n_dead := n_dead + 1;
     if (n_dead > 10)
-      signal ('RDF..', 'Over 10 deadlocks getting language id.  Retry ref load');
+      signal ('RDF..', 'Over 10 deadlocks getting datatype id. Retry the RDF load');
     goto again;
   };
  again:
   if (2 = old_mode)
     log_enable (0, 1);
 
-  t_iri_id := iri_to_id (iri, 1);
-  id := (select rdt_twobyte from rdf_datatype  where rdt_qname = iri);
-  if (id)
+  id := (select RDT_TWOBYTE from DB.DBA.RDF_DATATYPE where RDT_QNAME = iri);
+  if (id is null)
     {
-      commit work; -- if load non transactional, this is still a sharpp transaction boundary.
-      log_enable (old_mode, 1);
-      rdf_cache_id ('t', iri, id);
-      return id;
+      declare t_iri_id any;
+      t_iri_id := iri_to_id (iri, 1);
+      id:= sequence_next ('RDF_DATATYPE_TWOBYTE', 1, 1);
+      insert into DB.DBA.RDF_DATATYPE (RDT_TWOBYTE, RDT_IID, RDT_QNAME) values (id, t_iri_id, iri);
     }
-
-  id:= sequence_next ('RDF_DATATYPE_TWOBYTE', 1, 1);
-  insert into rdf_datatype (rdt_twobyte, rdt_iid, rdt_qname) values (id, t_iri_id, iri);
-  commit work; -- if load non transactional, this is still a sharpp transaction boundary.
+  commit work; -- if load non transactional, this is still a sharp transaction boundary.
   log_enable (old_mode, 1);
   rdf_cache_id ('t', iri, id);
   return id;
 }
 ;
 
-create procedure rdf_rl_lang_id (in ln varchar)
+create procedure DB.DBA.RDF_RL_LANG_ID (in ln varchar)
 {
   declare id, old_mode int;
   declare daq  any;
   ln := lower (ln);
   id := (select RL_TWOBYTE from DB.DBA.RDF_LANGUAGE where RL_ID = ln);
-  if (id)
+  if (id is not null)
     {
       rdf_cache_id ('l', ln, id);
       return id;
@@ -175,24 +170,19 @@ create procedure rdf_rl_lang_id (in ln varchar)
     rollback work;
     n_dead := n_dead + 1;
     if (n_dead > 10)
-      signal ('RDF..', 'Over 10 deadlocks getting language id.  Retry ref load');
+      signal ('RDF..', 'Over 10 deadlocks getting language id. Retry the RDF load');
     goto again;
   };
  again:
   if (2 = old_mode)
     log_enable (0, 1);
   id := (select RL_TWOBYTE from DB.DBA.RDF_LANGUAGE where RL_ID = ln);
-  if (id)
+  if (id is null)
     {
-      rdf_cache_id ('l', ln, id);
-      commit work; -- if load non transactional, this is still a sharpp transaction boundary.
-      log_enable (old_mode, 1);
-      return id;
+      id:= sequence_next ('RDF_LANGUAGE_TWOBYTE', 1, 1);
+      insert into DB.DBA.RDF_LANGUAGE (RL_TWOBYTE, RL_ID) values (id, ln);
     }
-
-  id:= sequence_next ('RDF_LANGUAGE_TWOBYTE', 1, 1);
-  insert into rdf_language (rl_twobyte, rl_id) values (id, ln);
-  commit work; -- if load non transactional, this is still a sharpp transaction boundary.
+  commit work; -- if load non transactional, this is still a sharp transaction boundary.
   log_enable (old_mode, 1);
   rdf_cache_id ('l', ln, id);
   return id;
@@ -216,7 +206,7 @@ create procedure DB.DBA.TTLP_RL_TRIPLE_L (
 	{
 	  lid := rdf_cache_id ('l', o_lang);
 	    if (lid = 0)
-	      lid := rdf_rl_lang_id (o_lang);
+	      lid := DB.DBA.RDF_RL_LANG_ID (o_lang);
 	}
       else
         lid := 257;
@@ -230,7 +220,7 @@ create procedure DB.DBA.TTLP_RL_TRIPLE_L (
                 {
                   tid := rdf_cache_id ('t', o_type);
                   if (tid = 0)
-                    tid := rdf_rl_type_id (o_type);
+                    tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
                   rdf_box_set_type (parsed, tid);
                 }
               else if (__tag of XML = __tag (parsed))
@@ -238,7 +228,7 @@ create procedure DB.DBA.TTLP_RL_TRIPLE_L (
 		  parsed := rdf_box (parsed, 300, 257, 0, 1);
 		  tid := rdf_cache_id ('t', o_type);
 		  if (tid = 0)
-		    tid := rdf_rl_type_id (o_type);
+		    tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
 		  rdf_box_set_type (parsed, tid);
 		}
               -- if (not bit_and (is_text, 1))
@@ -252,7 +242,7 @@ create procedure DB.DBA.TTLP_RL_TRIPLE_L (
             }
 	  tid := rdf_cache_id ('t', o_type);
 	  if (tid = 0)
-	    tid := rdf_rl_type_id (o_type);
+	    tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
 	}
       else
         tid := 257;
@@ -408,7 +398,7 @@ create procedure DB.DBA.TTLP_RL_GS_TRIPLE_L (
 	{
 	  lid := rdf_cache_id ('l', o_lang);
 	    if (lid = 0)
-	      lid := rdf_rl_lang_id (o_lang);
+	      lid := DB.DBA.RDF_RL_LANG_ID (o_lang);
 	}
       else
         lid := 257;
@@ -422,7 +412,7 @@ create procedure DB.DBA.TTLP_RL_GS_TRIPLE_L (
                 {
                   tid := rdf_cache_id ('t', o_type);
                   if (tid = 0)
-                    tid := rdf_rl_type_id (o_type);
+                    tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
                   rdf_box_set_type (parsed, tid);
                 }
               else if (__tag of XML = __tag (parsed))
@@ -441,7 +431,7 @@ create procedure DB.DBA.TTLP_RL_GS_TRIPLE_L (
             }
 	  tid := rdf_cache_id ('t', o_type);
 	  if (tid = 0)
-	    tid := rdf_rl_type_id (o_type);
+	    tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
 	}
       else
         tid := 257;
@@ -492,7 +482,7 @@ create procedure DB.DBA.TTLP_EV_NULL_IID (inout uri varchar, inout g_iid IRI_ID,
 
 --/1d1/tpch1000
 --!!!
-create procedure DB.DBA.TTLP_V_GS (in strg varchar, in base varchar, in graph varchar := null, in flags integer, in threads int, in log_mode int, in old_log_mode int)
+create procedure DB.DBA.TTLP_V_GS (in strg varchar, in base varchar, in graph varchar := null, in flags integer, in threads integer, in log_mode integer, in old_log_mode integer)
 {
   declare ro_id_dict, app_env, g_iid any;
   -- dbg_obj_princ ('DB.DBA.TTLP_V_GS (...', base, graph, flags, threads, log_mode, old_log_mode);
@@ -519,7 +509,8 @@ create procedure DB.DBA.TTLP_V_GS (in strg varchar, in base varchar, in graph va
       aq_wait_all (app_env[0]);
     }
   connection_set ('g_dict', null);
-  log_enable (old_log_mode, 1);
+  if (old_log_mode is not null)
+    log_enable (old_log_mode, 1);
 }
 ;
 
@@ -533,6 +524,7 @@ create procedure DB.DBA.TTLP_V (in strg varchar, in base varchar, in graph varch
     }
   if (is_atomic ())
     signal ('22023', 'DB.DBA.TTLP_V(), the vectorized Turtle loader, can not be used while server is in the atomic mode; consider using plain non-vectorised loader DB.DBA.TTLP()');
+  old_log_mode := null;
   declare exit handler for sqlstate '37000' {
     if (app_env <> 0)
       {
@@ -541,21 +533,21 @@ create procedure DB.DBA.TTLP_V (in strg varchar, in base varchar, in graph varch
     aq_wait_all (app_env[0]);
       }
     connection_set ('g_dict', null);
+    if (old_log_mode is not null)
     log_enable (old_log_mode, 1);
     signal (__SQL_STATE, '[Vectorized Turtle loader] ' || __SQL_MESSAGE);
   };
-  old_log_mode := log_enable (null, 1);
   if (transactional = 0)
     {
       if (log_enable = 0 or log_enable = 1)
-    log_enable (2 + log_enable, 1);
+        log_enable := 2 + log_enable;
     }
   else
     threads := 0;
+
   if (log_enable is not null)
-    {
       old_log_mode := log_enable (log_enable, 1);
-    }
+
   if (126 = __tag (strg))
     strg := cast (strg as varchar);
 
@@ -578,7 +570,8 @@ create procedure DB.DBA.TTLP_V (in strg varchar, in base varchar, in graph varch
   commit work;
   aq_wait_all (app_env[0]);
   connection_set ('g_dict', null);
-  log_enable (old_log_mode, 1);
+  if (old_log_mode is not null)
+    log_enable (old_log_mode, 1);
 }
 ;
 
@@ -586,28 +579,27 @@ create procedure DB.DBA.RDF_LOAD_RDFXML_V (in strg varchar, in base varchar, in 
 {
   declare ro_id_dict, app_env, g_iid, old_log_mode any;
   if (1 <> sys_stat ('cl_run_local_only'))
-    return rdf_load_rdfxml_cl (strg, base, graph,0);
+    return DB.DBA.RDF_LOAD_RDFXML_CL (strg, base, graph,0);
 
   declare exit handler for sqlstate '37000' {
     rl_send (app_env, g_iid);
     commit work;
     aq_wait_all (app_env[0]);
     connection_set ('g_dict', null);
+    if (old_log_mode is not null)
     log_enable (old_log_mode, 1);
     signal (__SQL_STATE, '[Vectorized RDF/XML loader] ' || __SQL_MESSAGE);
   };
-  old_log_mode := log_enable (null, 1);
+  old_log_mode := null;
   if (transactional = 0)
     {
       if (log_mode = 0 or log_mode = 1)
-	log_enable (2 + log_mode, 1);
+	log_mode := 2 + log_mode;
     }
   else
     threads := 0;
   if (log_mode is not null)
-    {
       old_log_mode := log_enable (log_mode, 1);
-    }
   if (126 = __tag (strg))
     {
       declare s any;
@@ -631,7 +623,8 @@ create procedure DB.DBA.RDF_LOAD_RDFXML_V (in strg varchar, in base varchar, in 
   commit work;
   aq_wait_all (app_env[0]);
   connection_set ('g_dict', null);
-  log_enable (old_log_mode, 1);
+  if (old_log_mode is not null)
+    log_enable (old_log_mode, 1);
 }
 ;
 
@@ -840,9 +833,9 @@ create procedure DB.DBA.RDF_MAKE_S_O_FROM_PARTS_AND_FLAGS_C (inout s any array, 
       if (lid = 0)
 	{
 	  if (is_local)
-	    lid := rdf_rl_lang_id (lower (o_type));
+            lid := DB.DBA.RDF_RL_LANG_ID (lower (o_type));
 	  else
-	    lid := rdf_lang_id (lower (o_type));
+            lid := DB.DBA.RDF_LANG_ID (lower (o_type));
 	}
       if (is_text and __tag of rdf_box = __tag (o))
 	rdf_box_set_is_text (o, 1);
@@ -869,9 +862,9 @@ create procedure DB.DBA.RDF_MAKE_S_O_FROM_PARTS_AND_FLAGS_C (inout s any array, 
                   if (tid = 0)
                     {
                       if (is_local)
-                        tid := rdf_rl_type_id (o_type);
+                        tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
                       else
-                        tid := rdf_type_id (o_type);
+                        tid := DB.DBA.RDF_TYPE_ID (o_type);
                     }
                   rdf_box_set_type (parsed, tid);
                 }
@@ -885,9 +878,9 @@ create procedure DB.DBA.RDF_MAKE_S_O_FROM_PARTS_AND_FLAGS_C (inout s any array, 
 	  if (tid = 0)
 	    {
 	      if (is_local)
-		tid := rdf_rl_type_id (o_type);
+                tid := DB.DBA.RDF_RL_TYPE_ID (o_type);
 	      else
-		tid := rdf_type_id (o_type);
+                tid := DB.DBA.RDF_TYPE_ID (o_type);
 	    }
           o := rdf_box (o, tid, 257, 0, 1);
           if (is_text and __tag of rdf_box = __tag (o))

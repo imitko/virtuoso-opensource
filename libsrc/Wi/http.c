@@ -2608,15 +2608,17 @@ static char *fmt1 =
   SES_PRINT (ws->ws_strses, tmp);
   dk_free_box (tmp);
   dks_esc_write (ws->ws_strses, message, strlen (message), ws->ws_charset, default_charset, DKS_ESC_PTEXT);
-
-  SES_PRINT (ws->ws_strses, "    URI  = '");
-  dks_esc_write (ws->ws_strses, uri, strlen (uri), ws->ws_charset, default_charset, DKS_ESC_PTEXT);
-  SES_PRINT (ws->ws_strses, "'\n");
+  if (NULL != uri)
+    {
+      SES_PRINT (ws->ws_strses, "    URI  = '");
+      dks_esc_write (ws->ws_strses, uri, strlen (uri), ws->ws_charset, default_charset, DKS_ESC_PTEXT);
+      SES_PRINT (ws->ws_strses, "'\n");
 #ifdef DEBUG
-  SES_PRINT (ws->ws_strses, "    PATH = '");
-  dks_esc_write (ws->ws_strses, uri, strlen (uri), ws->ws_charset, default_charset, DKS_ESC_PTEXT);
-  SES_PRINT (ws->ws_strses, "'\n");
+      SES_PRINT (ws->ws_strses, "    PATH = '");
+      dks_esc_write (ws->ws_strses, uri, strlen (uri), ws->ws_charset, default_charset, DKS_ESC_PTEXT);
+      SES_PRINT (ws->ws_strses, "'\n");
 #endif
+    }
   SES_PRINT (ws->ws_strses, "  </pre></body></html>\n");
 }
 
@@ -3017,8 +3019,17 @@ ws_file (ws_connection_t * ws)
   ctype = ws_file_ctype (fname);
   if ((fd = open (path, OPEN_FLAGS_RO)) < 0)
     {
-      ws_http_error (ws, "HTTP/1.1 404 File not found", "The requested URL was not found", lfname, path);
-      HTTP_SET_STATUS_LINE (ws, "HTTP/1.1 404 File not found", 0);
+      if (MAINTENANCE) /* it sould be set maintenance page w/o such, keep status 503 */
+        {
+          ws_http_error (ws, "HTTP/1.1 503 Service Temporarily Unavailable",
+              "Service Temporarily Unavailable, please try again later", NULL, NULL);
+          HTTP_SET_STATUS_LINE (ws, "HTTP/1.1 503 Service Temporarily Unavailable", 1);
+        }
+      else
+        {
+          ws_http_error (ws, "HTTP/1.1 404 File not found", "The requested URL was not found", lfname, path);
+          HTTP_SET_STATUS_LINE (ws, "HTTP/1.1 404 File not found", 0);
+        }
       return;
     }
   if (V_FSTAT (fd, &st) || 0 != (st.st_mode & S_IFDIR))
@@ -5283,6 +5294,7 @@ dks_sqlval_esc_write (caddr_t *qst, dk_session_t *out, caddr_t val, wcharset_t *
 {
   query_instance_t * qi = (query_instance_t *) qst;
   dtp_t dtp = DV_TYPE_OF (val);
+again:
   if (DV_STRINGP (val))
     {
       ws_connection_t * ws = qi->qi_client && qi->qi_client->cli_ws ? qi->qi_client->cli_ws : NULL;
@@ -5322,6 +5334,17 @@ dks_sqlval_esc_write (caddr_t *qst, dk_session_t *out, caddr_t val, wcharset_t *
   else if (DV_DB_NULL == dtp)
     {
       ; /* do nothing */
+    }
+  else if (DV_RDF == dtp)
+    {
+      rdf_box_t *rb = val;
+      if (!rb->rb_is_complete)
+        rb_complete (rb, qi->qi_trx, qi);
+      val = rb->rb_box;
+      /* strings in RDF all are expected to be UTF8 */
+      if (DV_STRINGP (val))
+        box_flags (val) = (box_flags (val) | BF_UTF8);
+      goto again;
     }
   else
     {
