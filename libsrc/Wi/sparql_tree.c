@@ -3878,7 +3878,8 @@ sparp_gp_detach_all_filters (sparp_t *sparp, SPART *parent_gp, int extract_filte
       caddr_t ft_type = spar_filter_is_freetext_or_rtree (sparp, filt, NULL);
       if (NULL != ft_type)
         {
-          SPART *triple_with_var_obj = sparp_find_triple_with_var_obj_of_freetext (sparp, parent_gp, filt, SPAR_TRIPLE_FOR_FT_SHOULD_EXIST | SPAR_TRIPLE_SHOULD_HAVE_FT_TYPE);
+          SPART *triple_with_var_obj = sparp_find_triple_with_var_obj_of_freetext (sparp, parent_gp, filt, SPAR_TRIPLE_FOR_FT_SHOULD_EXIST
+              /* | SPAR_TRIPLE_SHOULD_HAVE_FT_TYPE may happen same triple pattern is duplicated */);
           triple_with_var_obj->_.triple.ft_type = 0;
         }
       memset (stss, 0, sizeof (sparp_trav_state_t) * (SPARP_MAX_SYNTDEPTH+2));
