@@ -22,6 +22,8 @@
 
 /* Aggregate concat */
 
+use DB;
+
 create procedure yac_rep_exec (in _attached_qual varchar, in _attached_owner varchar, in _attached_name varchar,
 			       inout _stmt any, inout _stat any, inout _msg any)
 {
@@ -821,6 +823,10 @@ y_sql_user_password_check (in name varchar, in pass varchar)
     rc := 1;
   else if (not length (nonce) and pass1 = pass)
     rc := 1;
+
+  -- no grant for any page, even main page
+  if (check_grants (name, 'nobody') = 0)
+    rc := 0;
 
   if (rc and (ltm is null or ltm < dateadd ('minute', -2, now ())))
     {
@@ -3223,7 +3229,7 @@ create procedure adm_get_users (in mask any := '%', in ord any := '', in seq any
 }
 ;
 
-create procedure adm_get_all_users (in mask any := '%', in ord any := '', in seq any := 'asc')
+create procedure DB.DBA.adm_get_all_users (in mask any := '%', in ord any := '', in seq any := 'asc')
 {
   declare sql, dta, mdta, rc, h, tmp any;
 
@@ -3249,9 +3255,9 @@ create procedure adm_get_all_users (in mask any := '%', in ord any := '', in seq
 }
 ;
 
-yacutia_exec_no_error('create procedure view Y_SYS_USERS_USERS as adm_get_users (mask, ord, seq) (U_NAME varchar, U_FULL_NAME varchar, U_LOGIN_TIME datetime, U_EDIT_TIME datetime)');
+yacutia_exec_no_error('create procedure view DB.DBA.Y_SYS_USERS_USERS as DB.DBA.adm_get_users (mask, ord, seq) (U_NAME varchar, U_FULL_NAME varchar, U_LOGIN_TIME datetime, U_EDIT_TIME datetime)');
 
-yacutia_exec_no_error('create procedure view Y_SYS_USERS as adm_get_all_users (mask, ord, seq) (U_NAME varchar, U_FULL_NAME varchar, U_IS_ROLE int)');
+yacutia_exec_no_error('create procedure view DB.DBA.Y_SYS_USERS as DB.DBA.adm_get_all_users (mask, ord, seq) (U_NAME varchar, U_FULL_NAME varchar, U_IS_ROLE int)');
 
 create procedure adm_get_scheduled_events (
   in ord any := 'name',
@@ -5807,7 +5813,7 @@ create procedure y_list_webids (in uname varchar)
       if (tp = 'X.509')
 	{
 	  fmt := x[1];
-	  cert := x[2];
+	  cert := cast (x[2] as varchar);
 	  pass := x[3];
 	  if (fmt = 3)
 	    fmt := 1;
@@ -6147,5 +6153,22 @@ create procedure y_registries (
     result (v0, v1);
   _skip:;
   }
+}
+;
+
+create procedure y_sys_stat(
+  in _key varchar := '')
+{
+  declare val any;
+  val := '';
+  {
+    -- catch error when using old binaries
+    declare continue handler for sqlstate '*';
+
+    -- next line can fail on older ports
+    val := sys_stat (_key);
+  }
+
+  return val;
 }
 ;
