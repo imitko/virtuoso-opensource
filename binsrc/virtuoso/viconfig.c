@@ -194,6 +194,7 @@ extern int uriqa_dynamic_local;
 extern int lite_mode;
 extern int rdf_obj_ft_rules_size;
 extern int it_n_maps;
+extern char * rdf_label_inf_name;
 extern int32 rdf_shorten_long_iri;
 extern int32 ric_samples_sz;
 extern int32 enable_p_stat;
@@ -1340,14 +1341,16 @@ cfg_setup (void)
       {
 	if (cfg_getlong (pconfig, section, sd->sd_name, &v) != -1)
 	  {
-	    if ((ptrlong)SD_INT32 == (ptrlong) sd->sd_str_value)
-	      *((int32*)sd->sd_value) = v;
+	    if (dbf_protected_param (sd))
+	      log_error ("Cannot set protected flag %s", sd->sd_name);
+	    else if ((ptrlong) SD_INT32 == (ptrlong) sd->sd_str_value)
+	      *((int32 *) sd->sd_value) = v;
 	    else if (sd->sd_value)
 	      *(sd->sd_value) = (long) v;
 	    else
 	      log_error ("Cannot set flag %s", sd->sd_name);
 	  }
-	sd ++;
+	sd++;
       }
   }
 
@@ -1674,6 +1677,9 @@ cfg_setup (void)
 
   if (cfg_getlong (pconfig, section, "TransitivityCacheEnabled", &tn_cache_enable) == -1)
     tn_cache_enable = 0;
+
+  if (cfg_getstring (pconfig, section, "LabelInferenceName", &rdf_label_inf_name) == -1)
+    rdf_label_inf_name = NULL;
 
   if (cfg_getlong (pconfig, section, "ShortenLongURIs", &rdf_shorten_long_iri) == -1)
     rdf_shorten_long_iri = 1;

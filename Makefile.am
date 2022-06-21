@@ -35,9 +35,8 @@ dist_doc_DATA = \
 	$(srcdir)/INSTALL.md \
 	$(srcdir)/LICENSE \
 	$(srcdir)/LICENSE.md \
-	$(srcdir)/NEWS \
 	$(srcdir)/NEWS.md \
-	$(srcdir)/README \
+	$(srcdir)/README.md \
 	$(srcdir)/README.GIT.md \
 	$(srcdir)/README.GeoSPARQL.md \
 	$(srcdir)/README.hibernate.md \
@@ -110,7 +109,7 @@ EXTRA_DIST = \
 	$(srcdir)/INSTALL.md \
 	$(srcdir)/LICENSE.md \
 	$(srcdir)/NEWS.md \
-	$(srcdir)/README \
+	$(srcdir)/README.md \
 	$(srcdir)/README.GIT.md \
 	$(srcdir)/README.MACOSX.md \
 	$(srcdir)/README.OpenSSL.md \
@@ -174,3 +173,11 @@ EXTRA_DIST = \
 	$(srcdir)/windows/*.bat \
 	$(srcdir)/windows/*.sln \
 	$(srcdir)/windows/*.vcxproj
+
+
+
+README: README.md
+	-pandoc -f markdown -t plain --wrap=none $< -o $@
+
+NEWS: NEWS.md
+	-pandoc -f markdown -t plain --wrap=none $< -o $@

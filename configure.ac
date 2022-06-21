@@ -30,7 +30,7 @@ AC_PREREQ(2.59)
 
 m4_define(vos_major,	[7])
 m4_define(vos_minor,	[2])
-m4_define(vos_patch,	[7])
+m4_define(vos_patch,	[8])
 m4_define(vos_devel,	[-dev])
 
 AC_INIT([Virtuoso Open Source Edition (Column Store)],
@@ -3179,6 +3179,7 @@ AC_CONFIG_FILES([
 	binsrc/rdf_mappers/Makefile
 	binsrc/rdb2rdf/Makefile
 	binsrc/rdf4j/Makefile
+	binsrc/rdf4j_4/Makefile
 	binsrc/redland/Makefile
 	binsrc/samples/demo/Makefile
 	binsrc/samples/hslookup/Makefile

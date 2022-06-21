@@ -68,6 +68,11 @@ create procedure WS.WS.SPARQL_ENDPOINT_HTML_HEAD (in title varchar)
     <meta name="Copyright" content="Copyright &#169; <?V year(now()) ?> OpenLink Software" />
     <meta name="Keywords"  content="OpenLink Virtuoso Sparql" />
     <title><?V title ?></title>
+
+    <link rel="icon" href="/favicon.ico?v=1" sizes="any" />
+    <link rel="icon" href="/favicon/favicon.svg?v=1" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/favicon/apple-touch-icon-180x180.png?v=1" />
+    <link rel="manifest" href="/favicon/manifest.webmanifest?v=1" />
 <?vsp
 }
 ;
@@ -459,6 +464,39 @@ create procedure WS.WS.SPARQL_ENDPOINT_FOOTER ()
     </div>
     </footer>
 <?vsp
+}
+;
+
+create procedure WS.WS.SPARQL_ENDPOINT_SVC_DESC ()
+{
+  declare ses any;
+  ses := string_output ();
+  http ('    <div style="display:none">\n', ses);
+  http ('       <div class="description" about="#service" typeof="sd:Service">\n', ses);
+  http (sprintf ('          <div rel="sd:endpoint" resource="%s://%{WSHost}s/sparql"></div>\n',
+		case when is_https_ctx () then 'https' else 'http' end, ses), ses);
+  http ('          <div rel="sd:feature"\n', ses);
+  http ('               resource="http://www.w3.org/ns/sparql-service-description#UnionDefaultGraph"></div>\n', ses);
+  http ('          <div rel="sd:feature"\n', ses);
+  http ('               resource="http://www.w3.org/ns/sparql-service-description#DereferencesURIs"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat" resource="http://www.w3.org/ns/formats/RDF_XML"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat" resource="http://www.w3.org/ns/formats/Turtle"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat"\n', ses);
+  http ('               resource="http://www.w3.org/ns/formats/SPARQL_Results_CSV"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat" resource="http://www.w3.org/ns/formats/N-Triples"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat" resource="http://www.w3.org/ns/formats/N3"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat"\n', ses);
+  http ('               resource="http://www.w3.org/ns/formats/SPARQL_Results_JSON"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat" resource="http://www.w3.org/ns/formats/RDFa"></div>\n', ses);
+  http ('          <div rel="sd:resultFormat"\n', ses);
+  http ('               resource="http://www.w3.org/ns/formats/SPARQL_Results_XML"></div>\n', ses);
+  http ('          <div rel="sd:supportedLanguage"\n', ses);
+  http ('               resource="http://www.w3.org/ns/sparql-service-description#SPARQL10Query"></div>\n', ses);
+  http (sprintf ('          <div rel="sd:url" resource="%s://%{WSHost}s/sparql"></div>\n',
+		case when is_https_ctx () then 'https' else 'http' end, ses), ses);
+  http ('       </div>\n', ses);
+  http ('    </div>\n', ses);
+  return ses;
 }
 ;
 
