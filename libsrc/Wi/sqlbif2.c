@@ -1698,6 +1698,37 @@ bif_soundex (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 }
 
 static caddr_t
+bif_soundex_phrase (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
+{
+  caddr_t phrase = bif_string_arg (qst, args, 0, "soundex_phrase");
+  dk_set_t set = NULL;
+  caddr_t ret = NULL, code;
+  int nth = 0;
+  dk_session_t * ses = strses_allocate ();
+  split_string (phrase, " ", &set);
+  while (NULL != (code = dk_set_pop (&set)))
+    {
+      if (box_length (code) > 3)
+        {
+          caddr_t scode = soundex (code);
+          if (nth > 0)
+            session_buffered_write_char ('-', ses);
+          session_buffered_write (ses, scode, strlen(scode));
+          nth ++;
+          dk_free_box (scode);
+        }
+      dk_free_box (code);
+    }
+  if (strses_length (ses))
+    ret = strses_string (ses);
+  else
+    ret = soundex (phrase);
+  dk_free_box (ses);
+  return ret;
+}
+
+
+static caddr_t
 bif_difference (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 {
   caddr_t name1 = bif_string_arg (qst, args, 0, "difference");
@@ -1780,6 +1811,7 @@ sqlbif2_init (void)
   bif_define_ex ("format_number", bif_format_number, BMD_RET_TYPE, &bt_varchar, BMD_DONE);
   bif_define ("__stop_cpt", bif_stop_cpt);
   bif_define ("soundex", bif_soundex);
+  bif_define ("soundex_phrase", bif_soundex_phrase);
   bif_define ("difference", bif_difference);
   bif_define ("set_client_acl_restrictions", bif_set_client_acl_restrictions);
   /*bif_define ("repl_this_server", bif_this_server);*/
