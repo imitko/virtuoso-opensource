@@ -35,6 +35,7 @@
 #include "xmltree.h"
 #include "security.h"
 #include "aqueue.h"
+#include "sqlbif.h"
 
 #ifdef WIN32
 # include "wiservic.h"

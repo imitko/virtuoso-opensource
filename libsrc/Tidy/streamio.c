@@ -594,9 +594,9 @@ void TY_(WriteChar)( uint c, StreamOut* out )
     if ( LF == c )
     {
       if ( out->nl == TidyCRLF )
-          TY_(WriteChar)( CR, out );
+          TY_(WriteChar)( CR_CHAR, out );
       else if ( out->nl == TidyCR )
-          c = CR;
+          c = CR_CHAR;
     }
 
     if (out->encoding == MACROMAN)
