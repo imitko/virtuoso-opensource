@@ -420,6 +420,7 @@ extern int dbf_max_itc_samples;
 extern int32 c_pcre_match_limit;
 extern int32 c_pcre_match_limit_recursion;
 extern int32 pcre_max_cache_sz;
+extern int64 users_cache_sz;
 
 extern int32 shcompo_max_cache_sz;
 
@@ -496,6 +497,8 @@ static long thr_cli_vdb;
 
 static long db_max_col_bytes = ROW_MAX_COL_BYTES;
 static long db_sizeof_wide_char = sizeof (wchar_t);
+
+extern int debug_invalid_iri_id;
 
 void
 process_status_report (void)
@@ -1967,13 +1970,15 @@ stat_desc_t dbf_descs [] =
     {"pcre_match_limit", &c_pcre_match_limit, SD_INT32},
     {"pcre_match_limit_recursion", &c_pcre_match_limit_recursion, SD_INT32},
     {"pcre_max_cache_sz", &pcre_max_cache_sz, SD_INT32},
-  {"shcompo_max_cache_sz", &shcompo_max_cache_sz, SD_INT32},
+    {"shcompo_max_cache_sz", &shcompo_max_cache_sz, SD_INT32},
+    {"debug_invalid_iri_id", &debug_invalid_iri_id, SD_INT32},
     {"enable_qr_comment", &enable_qr_comment, SD_INT32},
     {"timezoneless_datetimes", &timezoneless_datetimes, SD_INT32},
     {"lock_escalation_pct", &lock_escalation_pct, SD_INT32},
     {"enable_spar_logfile", (long *) &enable_spar_logfile, SD_INT32},
     {"enable_sqlc_logfile", (long *) &enable_sqlc_logfile, SD_INT32},
     {"http_connect_timeout", &http_connect_timeout, SD_INT32},
+    {"users_cache_sz", &users_cache_sz, SD_INT64},
     {NULL, NULL, NULL}
   };
 
