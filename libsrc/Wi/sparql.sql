@@ -4,7 +4,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2022 OpenLink Software
+--  Copyright (C) 1998-2023 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -385,6 +385,7 @@ create procedure DB.DBA.XML_LOAD_ALL_NS_DECLS ()
     {
       __xml_set_ns_decl (NS_PREFIX, NS_URL, 2);
     }
+  DB.DBA.XML_SET_NS_DECL (	'as'		, 'https://www.w3.org/ns/activitystreams#'	                , 2);
   DB.DBA.XML_SET_NS_DECL (	'bif'		, 'http://www.openlinksw.com/schemas/bif#'	                , 2);
   DB.DBA.XML_SET_NS_DECL (	'dawgt'		, 'http://www.w3.org/2001/sw/DataAccess/tests/test-dawg#'	, 2);
   DB.DBA.XML_SET_NS_DECL (	'dbpedia'	, 'http://dbpedia.org/resource/'				, 2);
@@ -393,9 +394,11 @@ create procedure DB.DBA.XML_LOAD_ALL_NS_DECLS ()
   DB.DBA.XML_SET_NS_DECL (	'dcterms'	, 'http://purl.org/dc/terms/'   				, 2);
   DB.DBA.XML_SET_NS_DECL (	'go'		, 'http://purl.org/obo/owl/GO#'					, 2);
   DB.DBA.XML_SET_NS_DECL (	'geo'		, 'http://www.w3.org/2003/01/geo/wgs84_pos#'			, 2);
+  DB.DBA.XML_SET_NS_DECL (	'gr'		, 'http://purl.org/goodrelations/v1#'   			, 2);
   DB.DBA.XML_SET_NS_DECL (	'fn'		, 'http://www.w3.org/2005/xpath-functions/#'			, 2);
   DB.DBA.XML_SET_NS_DECL (	'foaf'		, 'http://xmlns.com/foaf/0.1/'					, 2);
   DB.DBA.XML_SET_NS_DECL (	'ldp'		, 'http://www.w3.org/ns/ldp#'					, 2);
+  DB.DBA.XML_SET_NS_DECL (	'oa'		, 'http://www.w3.org/ns/oa#'		                        , 2);
   DB.DBA.XML_SET_NS_DECL (	'obo'		, 'http://www.geneontology.org/formats/oboInOwl#'		, 2);
   DB.DBA.XML_SET_NS_DECL (	'ogc'		, 'http://www.opengis.net/'					, 2);
   DB.DBA.XML_SET_NS_DECL (	'ogcgml'	, 'http://www.opengis.net/ont/gml#'				, 2);
@@ -410,6 +413,7 @@ create procedure DB.DBA.XML_LOAD_ALL_NS_DECLS ()
   DB.DBA.XML_SET_NS_DECL (	'nci'		, 'http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl#'		, 2);
   DB.DBA.XML_SET_NS_DECL (	'product'	, 'http://www.buy.com/rss/module/productV2/'			, 2);
   DB.DBA.XML_SET_NS_DECL (	'protseq'	, 'http://purl.org/science/protein/bysequence/'			, 2);
+  DB.DBA.XML_SET_NS_DECL (	'prov'	        , 'http://www.w3.org/ns/prov#'			                , 2);
   DB.DBA.XML_SET_NS_DECL (	'rdf'		, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'			, 2);
   DB.DBA.XML_SET_NS_DECL (	'rdfa'		, 'http://www.w3.org/ns/rdfa#'					, 2);
   DB.DBA.XML_SET_NS_DECL (	'rdfdf'		, 'http://www.openlinksw.com/virtrdf-data-formats#'		, 2);
@@ -890,6 +894,8 @@ create function DB.DBA.RDF_PRESET_TWOBYTES_OF_DATATYPES ()
     {
       __dbf_set ('rb_type__xsd:' || n, DB.DBA.RDF_TWOBYTE_OF_DATATYPE (iri_to_id ('http://www.w3.org/2001/XMLSchema#' || n)));
     }
+  __dbf_set ('rb_type__rdf:XMLLiteral', DB.DBA.RDF_TWOBYTE_OF_DATATYPE (iri_to_id ('http://www.w3.org/1999/02/22-rdf-syntax-ns#XMLLiteral')));
+  __dbf_set ('rb_type__rdf:langString', DB.DBA.RDF_TWOBYTE_OF_DATATYPE (iri_to_id ('http://www.w3.org/1999/02/22-rdf-syntax-ns#langString')));
   commit work;
 }
 ;
@@ -4276,6 +4282,7 @@ create procedure DB.DBA.RDF_TRIPLES_DOMINANCE_DATA (inout triples any, in trees4
   for (tctr := 0; tctr < tcount; tctr := tctr + 1)
     {
       declare s_iid, o_iid IRI_ID;
+      declare o_val any;
       -- dbg_obj_princ ('Gathering ', tctr, '/', tcount, triples[tctr][0], triples[tctr][1], triples[tctr][2]);
       if (triples[tctr][0] is null or triples[tctr][1] is null or triples[tctr][2] is null)
         {
@@ -4283,7 +4290,11 @@ create procedure DB.DBA.RDF_TRIPLES_DOMINANCE_DATA (inout triples any, in trees4
           goto triple_skipped;
         }
       s_iid := iri_to_id_nosignal (triples[tctr][0]);
-      o_iid := iri_to_id_nosignal (triples[tctr][2]);
+      o_val := triples[tctr][2];
+      if (__tag (o_val) in (__tag of varchar, __tag of uname, __tag of rdf_box, __tag of nvarchar, __tag of xml, __tag of iri_id, __tag of iri_id_8))
+        o_iid := iri_to_id_nosignal (o_val);
+      else
+        o_iid := null;
       if (trees4all or is_bnode_iri_id (s_iid))
         {
           declare p_iid IRI_ID;
@@ -4462,12 +4473,15 @@ create function DB.DBA.JSON_LD_CTX_MAKE_NEW_SHORTCUT (in p varchar, in otype var
   declare p_tail, otype_tail integer;
   declare orig_p, shortcut, short2, o_suffix varchar;
   orig_p := p;
+  -- dbg_obj_princ ('LD_CTX_NAME_NEW_SHORTCUT ( ' || p || ', ' || otype || ' )');
   otype_tail := strrchr (otype, '#');
+  if (otype_tail is null)
+    otype_tail := strrchr (otype, '/');
   if (otype_tail is null)
     o_suffix := otype;
   else
     {
-      o_suffix := subseq (otype, otype_tail+1);
+      o_suffix := '@' || subseq (otype, otype_tail+1);
       if (o_suffix = '')
         o_suffix := otype;
     }
@@ -6774,7 +6788,10 @@ create procedure DB.DBA.RDF_TRIPLES_TO_NICE_TTL_IMPL (inout triples any, in env_
       p := triples[tctr][1];
       o := triples[tctr][2];
       s_iid := iri_to_id_nosignal (s);
-      o_iid := iri_to_id_nosignal (o);
+      if (__tag (o) in (__tag of varchar, __tag of uname, __tag of rdf_box, __tag of nvarchar, __tag of xml, __tag of iri_id, __tag of iri_id_8))
+        o_iid := iri_to_id_nosignal (o);
+      else
+        o_iid := null;
       if (is_bnode_iri_id (s_iid))
         {
           declare u any;

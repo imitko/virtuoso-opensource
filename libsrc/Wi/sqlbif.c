@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2022 OpenLink Software
+ *  Copyright (C) 1998-2023 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -17357,7 +17357,7 @@ sql_bif_init (void)
   bif_define ("__set_identity", bif_set_identity);
   bif_define_ex ("set_user_id", bif_set_user_id, BMD_ALIAS, "__set_user_id", BMD_DONE);
   bif_define ("get_user_id", bif_get_user_id);
-  bif_define ("get_user_id_by_name", bif_get_user_id_by_name);
+  bif_define_ex ("get_user_id_by_name", bif_get_user_id_by_name, BMD_ALIAS, "user_to_uid", BMD_RET_TYPE, &bt_integer, BMD_DONE);
   bif_define ("__pop_user_id", bif_pop_user_id);
   bif_define ("identity_value", bif_identity_value);
   fcache_init ();

@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2022 OpenLink Software
+ *  Copyright (C) 1998-2023 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -321,6 +321,7 @@ caddr_t get_ssl_error_text (char *buf, int len);
 
 caddr_t regexp_match_01 (const char *pattern, const char *str, int c_opts);
 caddr_t regexp_match_01_const (const char* pattern, const char* str, int c_opts, void ** compiled_ret);
+int regexp_match_iri_const (int what, const char* str, caddr_t *err_ret);
 caddr_t regexp_split_match (const char* pattern, const char* str, int* next, int c_opts);
 int regexp_make_opts (const char* mode);
 int regexp_split_parse (const char* pattern, const char* str, int* offvect, int offvect_sz, int c_opts);
@@ -381,7 +382,7 @@ int iso_string_to_code (char * i);
 
 typedef struct bif_exec_stat_s
 {
-  uint32	exs_start;
+  time_msec_t	exs_start;
   client_connection_t * 	exs_cli;
   caddr_t 	exs_text;
 } bif_exec_stat_t;

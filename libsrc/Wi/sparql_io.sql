@@ -4,7 +4,7 @@
 --  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 --  project.
 --
---  Copyright (C) 1998-2022 OpenLink Software
+--  Copyright (C) 1998-2023 OpenLink Software
 --
 --  This project is free software; you can redistribute it and/or modify it
 --  under the terms of the GNU General Public License as published by the
@@ -3258,7 +3258,9 @@ host_found:
       set TRANSACTION_TIMEOUT = max_timeout + 10000;
       timeout := 0;
     }
-  connection_set ('DB.DBA.RDF_LOG_DEBUG_INFO', log_debug_info);
+
+  if (log_debug_info <> '')
+    connection_set ('DB.DBA.RDF_LOG_DEBUG_INFO', log_debug_info);
   set_user_id (user_id, 1);
 
 again:
