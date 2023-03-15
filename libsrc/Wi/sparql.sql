@@ -8224,6 +8224,7 @@ create function DB.DBA.SPARUL_LOAD (in graph_iri any, in resource varchar, in ui
   declare old_log_mode integer;
   declare grab_params any;
   declare grabbed any;
+  declare get_soft varchar;
   declare res integer;
   __rgs_assert_cbk (graph_iri, uid, 2, 'SPARUL LOAD');
   old_log_mode := log_enable (log_mode, 1);
@@ -8231,10 +8232,14 @@ create function DB.DBA.SPARUL_LOAD (in graph_iri any, in resource varchar, in ui
   grabbed := dict_new();
   if (isiri_id (graph_iri))
     graph_iri := id_to_iri (graph_iri);
+  get_soft := get_keyword ('get:soft', options, 'add');
+  if ('no-sponge' = get_soft)
+    get_soft := 'add'; -- It's explicit SPARQL LOAD
   grab_params := vector_concat (vector (
       'base_iri', resource,
       'get:destination', graph_iri,
-      'get:soft', get_keyword ('get:soft', options, 'replacing'),
+      'get:soft', get_soft,
+      'get:accept', get_keyword ('get:accept', options, null),
       'get:refresh', get_keyword ('get:refresh', options, -1),
       'get:error-recovery', get_keyword ('get:error-recovery', options, 'signal'),
       -- 'flags', flags,
@@ -13329,7 +13334,8 @@ create function DB.DBA.RDF_GRAPH_USER_PERMS_GET (in graph_iri varchar, in uid an
   declare res integer;
   graph_iid := iri_to_id (graph_iri);
   if (isstring (uid))
-    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED))));
+    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and
+            (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uid,'SPARQL_SELECT'))));
   if (uid is null)
     return 0;
   if (uid = 0)
@@ -13357,7 +13363,8 @@ create function DB.DBA.RDF_GRAPH_USER_PERMS_ACK (in graph_iri any, in uid any, i
   else
     app_cbk := NULL;
   if (isstring (uid))
-    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED))));
+    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and
+            (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uid,'SPARQL_SELECT'))));
   if (uid is null)
     perms := 0;
   else if (uid = 0)
@@ -13412,7 +13419,8 @@ create function DB.DBA.RDF_GRAPH_USER_PERMS_ASSERT (in graph_iri varchar, in uid
   else
     app_cbk := NULL;
   if (isstring (uid))
-    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED))));
+    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and
+            (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uid,'SPARQL_SELECT'))));
   if (uid is null)
     perms := 0;
   else if (uid = 0)
@@ -13474,7 +13482,8 @@ create procedure DB.DBA.RDF_DEFAULT_USER_PERMS_SET (in uname varchar, in perms i
       DB.DBA.RDF_DEFAULT_USER_PERMS_DEL (uname, set_private);
       return;
     }
-  uid := (select U_ID from DB.DBA.SYS_USERS where U_NAME = uname and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED)));
+  uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uname and
+          (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uname,'SPARQL_SELECT'))));
   set isolation = 'serializable';
   commit work;
   if (uid is null)
@@ -13646,7 +13655,8 @@ create procedure DB.DBA.RDF_GRAPH_USER_PERMS_SET (in graph_iri varchar, in uname
       return;
     }
   graph_iid := iri_to_id (graph_iri);
-  uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uname and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED))));
+  uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uname and
+          (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uname,'SPARQL_SELECT'))));
   set isolation = 'serializable';
   commit work;
   if (uid is null)
@@ -13790,7 +13800,8 @@ create function DB.DBA.RDF_GRAPH_GROUP_LIST_GET (in group_iri any, in extra_grap
   declare perms_dict, full_list, filtered_list any;
   -- dbg_obj_princ ('DB.DBA.RDF_GRAPH_GROUP_LIST_GET (', group_iri, extra_graphs, uid, req_perms, ')');
   if (isstring (uid))
-    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED))));
+    uid := ((select U_ID from DB.DBA.SYS_USERS where U_NAME = uid and
+            (U_NAME='nobody' or (U_SQL_ENABLE and not U_ACCOUNT_DISABLED) or user_has_role (uid,'SPARQL_SELECT'))));
   if (uid is null)
     return vector ();
   perms_dict := __rdf_graph_default_perms_of_user_dict(0);

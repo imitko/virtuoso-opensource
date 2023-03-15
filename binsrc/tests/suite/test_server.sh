@@ -74,10 +74,10 @@ VIRTUOSO_CAPACITY="single"
 #
 #  Netstat
 #
-NETSTAT=`which netstat`
+NETSTAT=`which netstat 2>/dev/null`
 if test -z "$NETSTAT"
 then
-    NETSTAT=`which ss`
+    NETSTAT=`which ss 2>/dev/null`
 fi
 if test -z "$NETSTAT"
 then
@@ -89,6 +89,22 @@ then
 fi
 export NETSTAT
 
+
+#
+#  Make sure the following binaries are installed
+#
+for i in curl wget gzip tar unzip
+do
+    B=`which $i 2>/dev/null`
+    if test -z "$B"
+    then
+	echo ""
+	echo "***"
+	echo "*** ERROR: Please make sure \'$i\' is installed and in your PATH before running the test suite."
+	echo "***"
+	exit 1
+    fi
+done
 
 while getopts ":smrcvwV" optname
   do

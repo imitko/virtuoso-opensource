@@ -30,7 +30,7 @@ AC_PREREQ(2.59)
 
 m4_define(vos_major,	[7])
 m4_define(vos_minor,	[2])
-m4_define(vos_patch,	[9])
+m4_define(vos_patch,	[10])
 m4_define(vos_devel,	[-dev])
 
 AC_INIT([Virtuoso Open Source Edition (Column Store)],
@@ -56,6 +56,7 @@ dnl	AM_INIT_AUTOMAKE([1.6])
 dnl	AM_INIT_AUTOMAKE([1.7])
 dnl	AM_INIT_AUTOMAKE([1.8])
 dnl	AM_INIT_AUTOMAKE([1.9 tar-ustar])
+dnl	AM_INIT_AUTOMAKE([1.16 tar-ustar subdir-objects])
 dnl
 AM_INIT_AUTOMAKE([1.9 tar-ustar])
 
@@ -591,7 +592,7 @@ AC_CHECK_FUNCS(getrusage)
 AC_CHECK_FUNCS(memmove memmem memcpy)
 AC_CHECK_FUNCS(mkstemp64 mkstemp)
 AC_CHECK_FUNCS(strftime stpcpy)
-AC_CHECK_FUNCS(clock_gettime gethrtime)
+AC_CHECK_FUNCS(gethrtime)
 
 AC_MSG_CHECKING(for sys_errlist)
 AC_TRY_LINK([
@@ -631,6 +632,17 @@ AC_CACHE_CHECK([whether __va_copy exists], ac_cv_have___va_copy, [
 if test "x$ac_cv_have___va_copy" = "xyes" ; then
 	AC_DEFINE(HAVE___VA_COPY, 1, [Define if __va_copy exists])
 fi
+
+
+##########################################################################
+##                                                                     ##
+##check for clock_gettime which may require an extra library           ##
+##                                                                     ##
+##########################################################################
+AC_SEARCH_LIBS(clock_gettime, [rt posix4], [
+       AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [Define to 1 if you have the clock_gettime function.])
+])
+
 
 ##########################################################################
 ##									##
