@@ -13316,15 +13316,15 @@ create procedure DB.DBA.RDF_GRAPH_GROUP_DEL (in group_iri varchar, in memb_iri v
   group_iid := iri_to_id (group_iri);
   memb_iid := iri_to_id (memb_iri);
   set isolation = 'serializable';
-  commit work;
   if (not exists (select top 1 1 from DB.DBA.RDF_GRAPH_GROUP where RGG_IRI = group_iri))
     signal ('RDF99', sprintf ('Graph group <%s> does not exist', group_iri));
-  if (group_iri = 'http://www.openlinksw.com/schemas/virtrdf#PrivateGraphs')
-    DB.DBA.RDF_GRAPH_CHECK_VISIBILITY_CHANGE (memb_iri, #i0);
-  delete from DB.DBA.RDF_GRAPH_GROUP_MEMBER
-  where RGGM_GROUP_IID = group_iid and RGGM_MEMBER_IID = memb_iid;
-  commit work;
+  delete from DB.DBA.RDF_GRAPH_GROUP_MEMBER where RGGM_GROUP_IID = group_iid and RGGM_MEMBER_IID = memb_iid;
   DB.DBA.SECURITY_CL_EXEC_AND_LOG ('DB.DBA.RDF_GRAPH_GROUP_DEL_MEMONLY (?, ?, ?, ?)', vector (group_iri, group_iid, memb_iri, memb_iid));
+  if (group_iri = 'http://www.openlinksw.com/schemas/virtrdf#PrivateGraphs')
+    {
+      commit work;
+      DB.DBA.RDF_GRAPH_CHECK_VISIBILITY_CHANGE (memb_iri, #i0);
+    }
 }
 ;
 
