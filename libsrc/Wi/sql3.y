@@ -857,7 +857,7 @@ base_table_def
 		{ $$ = t_listst (5, TABLE_DEF, $3,
 				 t_list_to_array (sqlc_ensure_primary_key (sqlp_process_col_options ($3, $5))), (ptrlong) $7, (ptrlong) $8); }
         | CREATE TABLE new_table_name AS query_exp opt_with_data
-		{ $$ = t_listst (4, CREATE_TABLE_AS, $3, $5, t_box_num ((ptrlong) $6)); }
+		{ $$ = t_listst (4, CREATE_TABLE_AS, $3, sqlp_view_def (NULL, $5, 1), t_box_num ((ptrlong) $6)); }
 	;
 
 base_table_element_commalist
@@ -1093,22 +1093,22 @@ add_col_column_list
 	;
 
 add_column
-	: ALTER TABLE q_table_name ADD opt_col_add_column add_col_column_def_list
+	: ALTER TABLE q_table_name ADD opt_col_add_column add_col_column_def_list opt_not_exists
 		{
 		  dk_set_t ret = NULL, col_defs_list = $6;
 		  DO_SET (dk_set_t, col_def, &col_defs_list)
 		    {
-		      t_set_push (&ret, t_listst (3, ADD_COLUMN, $3, t_list_to_array (col_def)));
+		      t_set_push (&ret, t_listst (4, ADD_COLUMN, $3, t_list_to_array (col_def), (ptrlong)$7));
 		    }
 		  END_DO_SET ();
 		  $$ = ret;
 		}
-	| ALTER TABLE q_table_name DROP opt_col_add_column add_col_column_list
+	| ALTER TABLE q_table_name DROP opt_col_add_column add_col_column_list opt_if_exists
 		{
 		  dk_set_t ret = NULL, col_ref_list = $6;
 		  DO_SET (caddr_t, col_ref, &col_ref_list)
 		    {
-		      t_set_push (&ret, t_listst (3, DROP_COL, $3, col_ref));
+		      t_set_push (&ret, t_listst (4, DROP_COL, $3, col_ref, (ptrlong)$7));
 		    }
 		  END_DO_SET ();
 		  $$ = ret;
@@ -2451,12 +2451,12 @@ in_predicate
 	: scalar_exp NOT IN_L subquery
 		{
 		  ST *in = NULL;
-		  in = SUBQ_PRED (SOME_PRED, $1, sqlp_wpar_nonselect ($4), BOP_EQ, NULL);
+		  in = SUBQ_PRED (SOME_PRED, $1, sqlp_wrap_nonselect ($4, 0), BOP_EQ, NULL);
 		  NEGATE ($$, in);
 		}
 	| scalar_exp IN_L subquery
 		{
-		  $$ = SUBQ_PRED (SOME_PRED, $1, sqlp_wpar_nonselect ($3), BOP_EQ, NULL); }
+		  $$ = SUBQ_PRED (SOME_PRED, $1, sqlp_wrap_nonselect ($3, 0), BOP_EQ, NULL); }
 	| scalar_exp NOT IN_L '(' scalar_exp_commalist ')'
  		{ $$ = sqlp_in_exp ($1, $5, 1);
 		}
@@ -2474,7 +2474,7 @@ atom_commalist
 
 all_or_any_predicate
 	: scalar_exp COMPARISON any_all_some subquery
-		{ $$ = SUBQ_PRED ($3, $1, sqlp_wpar_nonselect ($4), $2, NULL); }
+		{ $$ = SUBQ_PRED ($3, $1, sqlp_wrap_nonselect ($4, 0), $2, NULL); }
 	;
 
 any_all_some
@@ -2487,7 +2487,7 @@ existence_test
 	: EXISTS subquery
 		{
 		  /* exists (select * ..) becomes exists (select 1 ...) */
-		  ST * ext_subq = $2;
+		  ST * ext_subq = sqlp_wrap_nonselect ($2, 1);
 		  ext_subq->_.select_stmt.selection = (caddr_t*) t_list (1, t_box_num (1));
 		  ext_subq->_.select_stmt.top = NULL;
 		  $$ = (ST *) SUBQ_PRED (EXISTS_PRED, NULL, ext_subq, NULL, NULL); }
