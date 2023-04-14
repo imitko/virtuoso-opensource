@@ -1840,7 +1840,8 @@ cr_done:
       sst = cli_get_stmt_access (lt->lt_client, stmt_id, GET_EXCLUSIVE, NULL);
       text2 = box_copy (text);
       err = stmt_set_query (sst, lt->lt_client, text, opts);
-      LEAVE_CLIENT (lt->lt_client);
+      if (!lt->lt_client->cli_is_log)
+        LEAVE_CLIENT (lt->lt_client); /* not entered in log replay */
       if (err != NULL)
 	{
 	  if ((caddr_t)-1 == err)
@@ -2710,9 +2711,9 @@ repl_append_vec_entry_async (lre_queue_t *lq, client_connection_t * cli, lre_req
       int inx = 0;
       int plen;
       query_t *qr = get_vec_query (request, key, flag, &err);
-      plen = dk_set_length (qr->qr_parms);
       if (err)
 	return err;
+      plen = dk_set_length (qr->qr_parms);
       request->lr_qr = qr;
       qr_pool = request->lr_pool = mem_pool_alloc ();
       qr_params_vec = request->lr_params_vec = (data_col_t**) mp_alloc_box(qr_pool, plen * sizeof (data_col_t*), DV_BIN);
@@ -3575,6 +3576,7 @@ log_replay_file (int fd)
   if (CL_RUN_LOCAL != cl_run_local_only)
     enable_mt_ft_inx = 0;
   cli->cli_user = sec_id_to_user (U_ID_DBA);
+  cli->cli_is_log = 1;
   total_size_bytes = LSEEK (fd, 0, SEEK_END);
   if (total_size_bytes == (OFF_T) -1)
     total_size_bytes = 0;
