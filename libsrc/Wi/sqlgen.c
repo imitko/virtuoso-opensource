@@ -1630,7 +1630,8 @@ sqlg_hash_source (sqlo_t * so, df_elt_t * tb_dfe, dk_set_t * pre_code)
 		}
 	      else
 		{
-		  hs->hs_ref_slots[nth]->ssl_sqt.sqt_col_dtp = ssl->ssl_sqt.sqt_col_dtp; /* hash filler col must have this set */
+                  if (NULL == hs->hs_ref_slots[nth]->ssl_column) /* if there is a col col_dtp is set already and dc fill fn for it, do next otherwise */
+                    hs->hs_ref_slots[nth]->ssl_sqt.sqt_col_dtp = ssl->ssl_sqt.sqt_col_dtp; /* hash filler col must have this set */
 		  if (!tb_dfe->_.table.ot->ot_is_outer)
 	    ssl_alias (ssl, hs->hs_ref_slots[nth]);
 	  else
@@ -5855,7 +5856,7 @@ dfe_unit_col_loci (df_elt_t * dfe)
 		  dfe_unit_col_loci (pred);
 		}
 	      END_DO_SET();
-	      if (dfe->dfe_type == DFE_VALUE_SUBQ)
+             if (org_dfe && dfe->dfe_type == DFE_VALUE_SUBQ)
 		org_dfe->_.sub = dfe->_.sub; /* find the copy with layout in sqlo_df, not the bare original */
 	    }
 	  break;
