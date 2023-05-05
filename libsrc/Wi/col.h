@@ -481,7 +481,6 @@ int  ce_n_values (db_buf_t ce);
 caddr_t mp_box_n_chars (mem_pool_t * mp, caddr_t b, int l);
 int  cr_n_rows (col_data_ref_t * cr);
 int  cr_n_bytes (col_data_ref_t * cr);
-void  itc_range (it_cursor_t * itc, row_no_t lower, row_no_t upper);
 int ce_search (it_cursor_t * itc, db_buf_t ce, row_no_t row_of_ce, int rc, int nth_key);
 
 /* return / rc of ce_search */
@@ -565,7 +564,7 @@ db_buf_t itc_dv_param (it_cursor_t * itc, int nth_key, db_buf_t ctmp);
 #define MAX_FIXED_DV_BYTES 50 /* max bytes in dv representation of fixed len box, e.g. date, decimal */
 int ce_dtp_compare (db_buf_t ce, dtp_t dtp);
 int ce_typed_vec_dtp_compare (db_buf_t ce, dtp_t dtp);
-#ifdef DEBUG
+#if defined(DEBUG) | defined(MTX_DEBUG)
 void bing (void);
 #endif
 dtp_t ce_dtp_f (db_buf_t ce);

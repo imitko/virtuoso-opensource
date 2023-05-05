@@ -63,9 +63,9 @@ DBG_NAME (itc_alloc_box) (DBG_PARAMS it_cursor_t * itc, int len, dtp_t dtp)
 }
 
 col_data_ref_t *
-itc_new_cr (it_cursor_t * itc)
+DBG_NAME (itc_new_cr) (DBG_PARAMS it_cursor_t * itc)
 {
-  col_data_ref_t *cr = (col_data_ref_t *) itc_alloc_box (itc, sizeof (col_data_ref_t), DV_BIN);
+  col_data_ref_t *cr = (col_data_ref_t *) DBG_NAME (itc_alloc_box) (DBG_ARGS itc, sizeof (col_data_ref_t), DV_BIN);
   memset (cr, 0, sizeof (col_data_ref_t));
   cr->cr_pages = &cr->cr_pre_pages[0];
   cr->cr_pages_sz = sizeof (cr->cr_pre_pages) / sizeof (col_page_t);
@@ -103,7 +103,7 @@ itc_set_sp_stat (it_cursor_t * itc)
 
 
 void
-itc_col_init (it_cursor_t * itc)
+DBG_NAME (itc_col_init)  (DBG_PARAMS it_cursor_t * itc)
 {
   search_spec_t *sp;
   it_cursor_t *zero = NULL;
@@ -117,11 +117,12 @@ itc_col_init (it_cursor_t * itc)
   itc->itc_temp = tmp;
   itc->itc_temp_max = mx;
   itc->itc_is_col = 1;
-  itc->itc_col_refs = (col_data_ref_t **) itc_alloc_box (itc, itc->itc_insert_key->key_n_parts * sizeof (caddr_t), DV_BIN);
+  itc->itc_col_refs =
+      (col_data_ref_t **) DBG_NAME (itc_alloc_box) (DBG_ARGS itc, itc->itc_insert_key->key_n_parts * sizeof (caddr_t), DV_BIN);
   memset (itc->itc_col_refs, 0, box_length (itc->itc_col_refs));
   for (sp = itc->itc_key_spec.ksp_spec_array; sp; sp = sp->sp_next)
     {
-      col_data_ref_t *cr = itc_new_cr (itc);
+      col_data_ref_t *cr = DBG_NAME (itc_new_cr) (DBG_ARGS itc);
       itc->itc_col_refs[nth] = cr;
       nth++;
     }
@@ -129,7 +130,7 @@ itc_col_init (it_cursor_t * itc)
     {
       if (!itc->itc_col_refs[sp->sp_cl.cl_nth - n_keys])
 	{
-	  col_data_ref_t *cr = itc_new_cr (itc);
+	  col_data_ref_t *cr = DBG_NAME (itc_new_cr) (DBG_ARGS itc);
 	  itc->itc_col_refs[sp->sp_cl.cl_nth - n_keys] = cr;
 	}
     }
@@ -141,7 +142,7 @@ itc_col_init (it_cursor_t * itc)
 	  dbe_col_loc_t *cl = &itc->itc_ks->ks_v_out_map[inx].om_cl;
 	  if (cl->cl_col_id && !itc->itc_col_refs[cl->cl_nth - n_keys])
 	    {
-	      col_data_ref_t *cr = itc_new_cr (itc);
+	      col_data_ref_t *cr = DBG_NAME (itc_new_cr) (DBG_ARGS itc);
 	      itc->itc_col_refs[cl->cl_nth - n_keys] = cr;
 	    }
 	}
@@ -807,10 +808,9 @@ itc_fetch_col_vec (it_cursor_t * itc, buffer_desc_t * buf, dbe_col_loc_t * cl, i
       dp_addr_t dp = dps[cr_inx];
       do {
 	ITC_IN_KNOWN_MAP (itc, dp);
-	page_wait_access (itc, dp, 
-			  NULL, &cr->cr_pages[cr_inx].cp_buf, ITC_LANDED_PA (itc), RWG_WAIT_ANY);
+	page_wait_access (itc, dp, NULL, &cr->cr_pages[cr_inx].cp_buf, ITC_LANDED_PA (itc), RWG_WAIT_ANY);
 	if (itc->itc_to_reset > RWG_WAIT_ANY) TC (tc_col_rewait);
-      } 	while (itc->itc_to_reset > RWG_WAIT_ANY);
+      } while (itc->itc_to_reset > RWG_WAIT_ANY);
       ITC_LEAVE_MAPS (itc);
       if (PF_OF_DELETED == cr->cr_pages[cr_inx].cp_buf)
 	{
@@ -995,12 +995,12 @@ itc_fetch_col (it_cursor_t * itc, buffer_desc_t * buf, dbe_col_loc_t * cl, int f
 
 
 void
-itc_range (it_cursor_t * itc, row_no_t lower, row_no_t upper)
+DBG_NAME (itc_range) (DBG_PARAMS it_cursor_t * itc, row_no_t lower, row_no_t upper)
 {
   int rf = itc->itc_range_fill;
   int sz;
   if (!itc->itc_ranges)
-    itc->itc_ranges = (row_range_t *) itc_alloc_box (itc, sizeof (row_range_t) * (itc->itc_n_sets + 4), DV_BIN);
+    itc->itc_ranges = (row_range_t *) DBG_NAME (itc_alloc_box) (DBG_ARGS itc, sizeof (row_range_t) * (itc->itc_n_sets + 4), DV_BIN);
   sz = box_length (itc->itc_ranges) / sizeof (row_range_t);
   if (rf + 1 == sz)
     itc_extend_array (itc, &sz, sizeof (row_range_t), (void ***) &itc->itc_ranges);
@@ -3162,7 +3162,7 @@ itc_col_row_check (it_cursor_t * itc, buffer_desc_t ** buf_ret, dp_addr_t * leaf
   db_buf_t row;
   key_ver_t kv;
   buffer_desc_t *buf;
-  CHECK_TRX_DEAD (itc, buf_ret, ITC_BUST_CONTINUABLE);
+  /* tested in itc_search do not stop here at middle CHECK_TRX_DEAD (itc, buf_ret, ITC_BUST_CONTINUABLE); */
   ITC_DFG_CK (itc);
   itc->itc_col_need_preimage = 0;
 start:

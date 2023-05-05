@@ -560,7 +560,7 @@ iq_aio (io_queue_t * iq)
 		  /* If the buffer hasn't moved out of sort order and
 		     hasn't been flushed by a sync write */
 		  buf->bd_readers++;
-		  buf->bd_is_dirty = 0;
+                  BUF_SET_IS_DIRTY(buf,0);
 		  /* clear dirty flag BEFORE write because the buffer
 		   * can move and the flag can go back on DURING the write */
 		  mutex_leave (&buf_itm->itm_mtx);
@@ -884,7 +884,7 @@ iq_loop (io_queue_t * iq)
 		  /* If the buffer hasn't moved out of sort order and
 		     hasn't been flushed by a sync write */
 		  BD_SET_IS_WRITE (buf, 1);
-		  buf->bd_is_dirty = 0;
+                  BUF_SET_IS_DIRTY(buf,0);
 		  dp_to = buf->bd_physical_page;	/* dp may change once outside of map. */
 		  /* clear dirty flag BEFORE write because the buffer
 		   * can move and the flag can go back on DURING the write */
@@ -997,7 +997,8 @@ mtw_cpt_ck (buffer_desc_t * buf, int line)
     {
       if (!buf->bd_tree || !buf->bd_tree->it_key || KI_TEMP == buf->bd_tree->it_key->key_id)
 	return; /* no message for a temp because such can be wired down at cpt time and not writable */
-      log_error ("suspect to miss a flush of L=%d in cpt, line %d", buf->bd_page, line);
+      log_error ("suspect to miss a flush of key=%s L=%d P=%d in cpt, line %d",
+          buf->bd_tree->it_key->key_name, buf->bd_page, buf->bd_physical_page, line);
     }
 }
 

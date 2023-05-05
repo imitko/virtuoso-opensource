@@ -421,6 +421,7 @@ extern int32 c_pcre_match_limit;
 extern int32 c_pcre_match_limit_recursion;
 extern int32 pcre_max_cache_sz;
 extern int64 users_cache_sz;
+extern int32 enable_cpt_rb_ck;
 
 extern int32 shcompo_max_cache_sz;
 
@@ -483,6 +484,7 @@ long st_cli_n_current_connections = 0;
 long fe_replication_support = 0;
 
 long sparql_result_set_max_rows = 0;
+int32 sparql_construct_max_triples = 0;
 size_t sparql_max_mem_in_use = 0L;
 
 extern int rdf_create_graph_keywords;
@@ -1791,6 +1793,7 @@ stat_desc_t stat_descs [] =
 
     /* sparql vars */
     {"sparql_result_set_max_rows", &sparql_result_set_max_rows, NULL},
+    {"sparql_construct_max_triples", &sparql_construct_max_triples, SD_INT32},
     {"sparql_max_mem_in_use", &sparql_max_mem_in_use, SD_INT64},
     {"rdf_create_graph_keywords", &rdf_create_graph_keywords, SD_INT32},
     {"rdf_query_graph_keywords", &rdf_query_graph_keywords, SD_INT32},
@@ -1987,6 +1990,7 @@ stat_desc_t dbf_descs [] =
     {"enable_sqlc_logfile", (long *) &enable_sqlc_logfile, SD_INT32},
     {"http_connect_timeout", &http_connect_timeout, SD_INT32},
     {"users_cache_sz", &users_cache_sz, SD_INT64},
+    {"enable_cpt_rb_ck", &enable_cpt_rb_ck, SD_INT32},
     {NULL, NULL, NULL}
   };
 
@@ -4357,7 +4361,8 @@ bif_key_estimate (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 
   sqlr_new_error ("42S02", "SR243", "No key %s in key_estimate", key_name);
  found:
-  dbe_key_count (key); /* max of the sample, must be defd */
+  if (DBE_NO_STAT_DATA == key->key_table->tb_count_estimate)
+    dbe_key_count (key); /* max of the sample, must be defd */
   ITC_INIT (itc, key->key_fragments[0]->kf_it, NULL);
   itc_clear_stats (itc);
   memset (&specs,0,  sizeof (specs));

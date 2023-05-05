@@ -120,7 +120,7 @@ lt_rb_check (lock_trx_t * lt)
   END_DO_HT;
 }
 
-int enable_cpt_rb_ck = 0;
+int32 enable_cpt_rb_ck = 0;
 
 void
 cpt_rb_ck ()
@@ -191,8 +191,7 @@ cpt_rollback (int may_freeze)
 	      if (!lt_has_locks (lt))
 		break;
 	    }
-	  if (lt->lt_lw_threads
-	      && LT_KILL_FREEZE == may_freeze)
+	  if (lt->lt_lw_threads && LT_KILL_FREEZE == may_freeze)
 	    break;
 	  TC (tc_cpt_rollback);
 	  rdbg_printf (("trx %lx killed by checkpoint\n", lt));
@@ -1000,7 +999,7 @@ cpt_pl_restore (page_lock_t * pl, it_cursor_t * itc)
       return;
     }
   ITC_IN_KNOWN_MAP (itc, pl->pl_page);
-  itc_delta_this_buffer (itc, buf, 0);
+  itc_delta_this_buffer (itc, buf, DELTA_MAY_LEAVE);
   ITC_LEAVE_MAP_NC (itc);  rds = (row_delta_t **) list_to_array (dk_set_nreverse (rd_list));
   buf_sort ((buffer_desc_t **) rds, BOX_ELEMENTS (rds), (sort_key_func_t) rd_pos_key);
   page_apply (itc, buf, BOX_ELEMENTS (rds), rds, PA_MODIFY);
@@ -1173,7 +1172,7 @@ buf_unremap (buffer_desc_t * buf)
   em_free_dp (em, buf->bd_physical_page, EXT_REMAP);
   buf->bd_physical_page = buf->bd_page;
   remhash (DP_ADDR2VOID (buf->bd_page), cpt_dbs->dbs_cpt_remap);
-  buf->bd_is_dirty = 1;
+  BUF_SET_IS_DIRTY(buf,1);
   dp_set_backup_flag (cpt_dbs, buf->bd_page, 1);
   if (dbs_is_free_page (cpt_dbs, buf->bd_page))
     {
@@ -1310,7 +1309,7 @@ cpt_place_buffers ()
 	    GPF_T1 ("buf in cpt tree not supposed to be occupied");
 	  buf->bd_tree = NULL;
 	  buf->bd_page = 0;
-	  buf->bd_is_dirty = 0;
+          BUF_SET_IS_DIRTY(buf,0);
 	  buf->bd_storage = NULL;
 	}
       clrhash (&cpt_dbs->dbs_cpt_tree->it_maps[inx].itm_dp_to_buf);
@@ -1789,9 +1788,9 @@ dbs_cpt_recov (dbe_storage_t * dbs)
 			cp_buf->bd_storage = dbs;
 			buf_disk_read (cp_buf);
 			cp_buf->bd_physical_page = logical;
-			cp_buf->bd_is_dirty = 1;
+                        BUF_SET_IS_DIRTY(cp_buf,1);
 			buf_disk_write (cp_buf, logical);
-			cp_buf->bd_is_dirty = 0;
+                        BUF_SET_IS_DIRTY(cp_buf,0);
 			npages ++;
 			em = dbs_dp_to_em (dbs, physical);
 			if (em)
@@ -1807,9 +1806,9 @@ dbs_cpt_recov (dbe_storage_t * dbs)
 		cp_buf->bd_physical_page = logical;
 		cp_buf->bd_storage = dbs;
 		/*fprintf (stderr, "**remap l=%d\n", logical);*/
-		cp_buf->bd_is_dirty = 1;
+                BUF_SET_IS_DIRTY(cp_buf,1);
 		buf_disk_write (cp_buf, logical);
-		cp_buf->bd_is_dirty = 0;
+                BUF_SET_IS_DIRTY(cp_buf,0);
 		unpages ++;
 		break;
 	      }
@@ -1933,12 +1932,10 @@ dbs_cpt_backup (void)
 	{
 	  print_int (0, ses);
 	  session_flush_1 (ses);
-	  LEAVE_TXN;
 	  dbs_recov_write_page_set (dbs, dbs->dbs_extent_set);
 	  dbs_cpt_recov_write_extents  (dbs);
 	  dbs_recov_write_page_set (dbs, dbs->dbs_free_set);
 	  dbs_recov_write_page_set (dbs, dbs->dbs_incbackup_set);
-	  IN_TXN;
 	  head = (caddr_t *)list (4, box_num (dbs->dbs_free_set->bd_page),
 				  box_num (dbs->dbs_incbackup_set->bd_page),
 				  box_num (dbs->dbs_registry), dbs_registry_to_array (dbs));

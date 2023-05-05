@@ -122,9 +122,6 @@ typedef struct ext_ref_s ext_ref_t;
 #include "vec.h"
 
 
-#define IT_DP_MAP(it, dp) \
-  (&(it)->it_maps[(dp) & IT_N_MAPS_MASK])
-
 extern int it_n_maps;
 #define IT_N_MAPS it_n_maps
 #define IT_N_MAPS_MASK (it_n_maps - 1)
@@ -762,7 +759,7 @@ typedef struct out_map_s
   char			itc_lock_mode; \
   short			itc_map_pos; \
   row_no_t		itc_col_row; \
-  volatile dp_addr_t		itc_page; \
+  volatile dp_addr_t	itc_page; \
   dp_addr_t		itc_owns_page;  /* cache last owned lock */ \
   buffer_desc_t *	itc_buf_registered; \
   it_cursor_t *		itc_next_on_page; \
@@ -1505,18 +1502,20 @@ struct buffer_desc_s
   io_queue_t *	 bd_iq; /* iq, if buffer in queue for read(write */
   buffer_desc_t *	bd_iq_prev; /* next and prev in double linked list of io queue */
   buffer_desc_t *	bd_iq_next;
-#if defined (PAGE_DEBUG) | defined (MTX_DEBUG)
+#if defined (PAGE_DEBUG) | defined (MTX_DEBUG) | defined(BUF_FLAGS_DEBUG)
   du_thread_t *	bd_writer; /* for debugging, the thread which has write access, if any */
   char * 		bd_enter_file;
   char * 		bd_leave_file;
-  short 			bd_enter_line;
-  short 			bd_leave_line;
-  short                  bd_set_wr_line;
-  short		bd_delta_line;
+  short 	        bd_enter_line;
+  short 		bd_leave_line;
+  short                 bd_set_wr_line;
+  short                 bd_set_dirty_line;
+  short		        bd_delta_line;
   char 			bd_el_flag;	/* what operation was last: 1-enter, 2-leave */
-  int		bd_ck_ts;
-  int		bd_delta_ts;
+  bp_ts_t	        bd_ck_ts;
+  bp_ts_t		bd_delta_ts;
   char *                bd_set_wr_file;
+  char *                bd_set_dirty_file;
   thread_t *		bd_thr_el;
 #endif
 #ifdef PAGE_TRACE
@@ -1606,7 +1605,7 @@ struct buffer_desc_s
 #define BUF_NONE_WAITING(buf) \
 (!buf->bd_write_waiting && !buf->bd_read_waiting && !buf->bd_being_read)
 
-#if defined (PAGE_DEBUG) | defined (MTX_DEBUG)
+#if defined (PAGE_DEBUG) | defined (MTX_DEBUG) | defined(BUF_FLAGS_DEBUG)
 #define BD_SET_IS_WRITE(bd, f) \
 do { \
   (bd)->bd_is_write = f;			    \
@@ -2071,11 +2070,11 @@ extern int64 bdf_is_avail_mask; /* all bits on except read aside flag which does
       CHECK_DK_MEM_RESERVE (__lt); \
       CHECK_SESSION_DEAD (__lt, it, buf);		   \
       if ((__lt && __lt->lt_status != LT_PENDING)  \
-|| (wi_inst.wi_is_checkpoint_pending && cpt_is_global_lock (__lt))) \
+          || (wi_inst.wi_is_checkpoint_pending && cpt_is_global_lock (__lt))) \
 	{ \
 	  if (__lt && !wi_inst.wi_checkpoint_atomic) \
 	itc_bust_this_trx (it, buf, may_ret); \
-}\
+        }\
  }								\
 
 #define LT_NEED_WAIT_CPT(lt) \

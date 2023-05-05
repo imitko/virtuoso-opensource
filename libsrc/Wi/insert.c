@@ -158,6 +158,7 @@ pg_make_map (buffer_desc_t * buf)
     }
   if (pos && !pg_key)
     {
+      log_error ("Page %d with unknown key id: %d", buf->bd_page, k_id);
       if (assertion_on_read_fail)
 	GPF_T1 ("page read with no key defd");
       map->pm_count = 0;
@@ -1580,7 +1581,7 @@ itc_cp_check_node (it_cursor_t * itc, buffer_desc_t *parent, int mode)
     }
   CHECK_COMPACT;
   if (CP_CHANGED == any_change)
-    parent->bd_is_dirty = 1;
+    BUF_SET_IS_DIRTY(parent,1);
   if (COMPACT_DIRTY == mode)
     {
       parent_itm = IT_DP_MAP (it, parent->bd_page);
@@ -1842,7 +1843,7 @@ wi_check_all_compact (int age_limit)
     {
       if (it->it_key && it->it_key->key_is_col)
 	{
-	      if (!enable_col_ac || 2 == (enable_col_ac && age_limit))
+	      if (!enable_col_ac || 2 == (enable_col_ac & age_limit))
 	    continue;
 	      if (col_ac_last_duration && age_limit && !col_ac_due)
 		continue; /* col ac may be going for max 10% of real time */
