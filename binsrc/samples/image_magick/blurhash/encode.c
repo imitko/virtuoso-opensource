@@ -11,6 +11,7 @@ static int encodeAC(float r, float g, float b, float maximumValue);
 
 const char *blurHashForPixels(int xComponents, int yComponents, int width, int height, uint8_t *rgb, size_t bytesPerRow) {
 	static char buffer[2 + 4 + (9 * 9 - 1) * 2 + 1];
+        int y,x;
 
 	if(xComponents < 1 || xComponents > 9) return NULL;
 	if(yComponents < 1 || yComponents > 9) return NULL;
@@ -18,8 +19,8 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	float factors[yComponents][xComponents][3];
 	memset(factors, 0, sizeof(factors));
 
-	for(int y = 0; y < yComponents; y++) {
-		for(int x = 0; x < xComponents; x++) {
+	for(y = 0; y < yComponents; y++) {
+		for(x = 0; x < xComponents; x++) {
 			float *factor = multiplyBasisFunction(x, y, width, height, rgb, bytesPerRow);
 			factors[y][x][0] = factor[0];
 			factors[y][x][1] = factor[1];
@@ -31,6 +32,7 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	float *ac = dc + 3;
 	int acCount = xComponents * yComponents - 1;
 	char *ptr = buffer;
+        int i;
 
 	int sizeFlag = (xComponents - 1) + (yComponents - 1) * 9;
 	ptr = encode_int(sizeFlag, 1, ptr);
@@ -38,7 +40,7 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	float maximumValue;
 	if(acCount > 0) {
 		float actualMaximumValue = 0;
-		for(int i = 0; i < acCount * 3; i++) {
+		for(i = 0; i < acCount * 3; i++) {
 			actualMaximumValue = fmaxf(fabsf(ac[i]), actualMaximumValue);
 		}
 
@@ -52,7 +54,7 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 
 	ptr = encode_int(encodeDC(dc[0], dc[1], dc[2]), 4, ptr);
 
-	for(int i = 0; i < acCount; i++) {
+	for(i = 0; i < acCount; i++) {
 		ptr = encode_int(encodeAC(ac[i * 3 + 0], ac[i * 3 + 1], ac[i * 3 + 2], maximumValue), 2, ptr);
 	}
 
@@ -64,9 +66,10 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 static float *multiplyBasisFunction(int xComponent, int yComponent, int width, int height, uint8_t *rgb, size_t bytesPerRow) {
 	float r = 0, g = 0, b = 0;
 	float normalisation = (xComponent == 0 && yComponent == 0) ? 1 : 2;
+        int x,y;
 
-	for(int y = 0; y < height; y++) {
-		for(int x = 0; x < width; x++) {
+	for(y = 0; y < height; y++) {
+		for(x = 0; x < width; x++) {
 			float basis = cosf(M_PI * xComponent * x / width) * cosf(M_PI * yComponent * y / height);
 			r += basis * sRGBToLinear(rgb[3 * x + 0 + y * bytesPerRow]);
 			g += basis * sRGBToLinear(rgb[3 * x + 1 + y * bytesPerRow]);
@@ -105,9 +108,10 @@ static char characters[83]="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop
 
 static char *encode_int(int value, int length, char *destination) {
 	int divisor = 1;
-	for(int i = 0; i < length - 1; i++) divisor *= 83;
+        int i;
+	for(i = 0; i < length - 1; i++) divisor *= 83;
 
-	for(int i = 0; i < length; i++) {
+	for(i = 0; i < length; i++) {
 		int digit = (value / divisor) % 83;
 		divisor /= 83;
 		*destination++ = characters[digit];
