@@ -155,15 +155,17 @@ im_env_set_filenames (im_env_t *env, int in_arg_no, int out_arg_no)
 
 void
 im_env_set_input_blob (im_env_t *env, int in_arg_no)
-  {
+{
   env->ime_input_blob = bif_string_arg (env->ime_qst, env->ime_args, in_arg_no, env->ime_bifname);
   env->ime_input_blob_len = bif_long_arg (env->ime_qst, env->ime_args, in_arg_no+1, env->ime_bifname);
+  if (env->ime_input_blob_len <= 0)
+    env->ime_input_blob_len = box_length (env->ime_input_blob) - 1;
   im_dbg_printf (("IM %p: %s() set input to blob, %ld bytes declared, %ld bytes actual with dtp %u\n", env, env->ime_bifname, (long)(env->ime_input_blob_len), (long)(box_length (env->ime_input_blob)), (unsigned)(DV_TYPE_OF(env->ime_input_blob))));
 }
 
 void
 im_env_set_blob_ext (im_env_t *env, int in_arg_no, int out_arg_no)
-  {
+{
   if ((0 <= in_arg_no) && (in_arg_no < env->ime_argcount))
   {
       env->ime_input_ext = bif_string_or_null_arg (env->ime_qst, env->ime_args, in_arg_no, env->ime_bifname);
@@ -981,6 +983,38 @@ bif_im_XY_to_Morton (caddr_t * qst, caddr_t * err, state_slot_t ** args)
   return box_num (morton);
 }
 
+#include "blurhash/encode.c"
+
+caddr_t
+bif_blurHashForPixels (caddr_t * qst, caddr_t * err, state_slot_t ** args)
+{
+  static char * me = "blurHashForPixels";
+  im_env_t env;
+  caddr_t res;
+  char * blur;
+  int x = bif_long_range_arg (qst, args, 2, me, 1, 9);
+  int y = bif_long_range_arg (qst, args, 3, me, 1, 9);
+  unsigned long width, height;
+
+  im_init (&env, qst, args, me);
+  im_env_set_input_blob (&env, 0);
+  im_read (&env, 0);
+  MagickResetIterator (env.ime_magick_wand);
+  while (MagickNextImage (env.ime_magick_wand) != MagickFalse)
+    {
+      env.ime_status = MagickSetImageFormat (env.ime_magick_wand, "rgb");
+      MagickSetFilename (env.ime_magick_wand, "image.rgb");
+      if (env.ime_status == MagickFalse)
+        im_leave_with_error (&env, "22023", "IM001", "bif_blurHashForPixels cannot convert image");
+    }
+  res = im_write (&env);
+  width = MagickGetImageWidth (env.ime_magick_wand);
+  height = MagickGetImageHeight (env.ime_magick_wand);
+  im_leave (&env);
+  blur = blurHashForPixels(x, y, width, height, res, width*3);
+  return box_dv_short_string (blur);
+}
+
 void im_connect (void *appdata)
 {
   im_IMVERSION = box_dv_short_string (IM_VERSION);
@@ -1031,6 +1065,7 @@ void im_connect (void *appdata)
 #endif
   bif_define ("IM CreateImageBlob", bif_im_CreateImageBlob);
   bif_define ("IM XYtoMorton", bif_im_XY_to_Morton);
+  bif_define ("IM BlurHashImageBlob", bif_blurHashForPixels);
   MagickWandGenesis();
 }
 
