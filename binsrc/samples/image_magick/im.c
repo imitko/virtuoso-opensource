@@ -995,6 +995,7 @@ bif_blurHashForPixels (caddr_t * qst, caddr_t * err, state_slot_t ** args)
   int x = bif_long_range_arg (qst, args, 2, me, 1, 9);
   int y = bif_long_range_arg (qst, args, 3, me, 1, 9);
   unsigned long width, height;
+  float ratio;
 
   im_init (&env, qst, args, me);
   im_env_set_input_blob (&env, 0);
@@ -1007,9 +1008,19 @@ bif_blurHashForPixels (caddr_t * qst, caddr_t * err, state_slot_t ** args)
       if (env.ime_status == MagickFalse)
         im_leave_with_error (&env, "22023", "IM001", "bif_blurHashForPixels cannot convert image");
     }
-  res = im_write (&env);
   width = MagickGetImageWidth (env.ime_magick_wand);
   height = MagickGetImageHeight (env.ime_magick_wand);
+  ratio = (float)width/height;
+  width = 128;
+  height = width / ratio;
+  MagickResetIterator (env.ime_magick_wand);
+  while (MagickNextImage (env.ime_magick_wand) != MagickFalse)
+    {
+      MagickResizeImage (env.ime_magick_wand, width, height, PointFilter, 1.0);
+      MagickResetImagePage (env.ime_magick_wand, "0x0+0+0");
+      MagickProfileImage (env.ime_magick_wand, "*", NULL, 0);
+    }
+  res = im_write (&env);
   im_leave (&env);
   blur = blurHashForPixels(x, y, width, height, res, width*3);
   return box_dv_short_string (blur);
