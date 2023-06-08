@@ -500,6 +500,7 @@ bif_string_or_uname_or_wide_or_null_arg (caddr_t * qst, state_slot_t ** args, in
   return arg;
 }
 
+/*                                 func , dtp                   , prec  , scale , non_null , sql_dml_name       */
 bif_type_t bt_varchar		= {NULL	, DV_LONG_STRING	, 0	, 0	, 0	, "varchar"		};
 bif_type_t bt_wvarchar		= {NULL	, DV_WIDE		, 0	, 0	, 0	, "nvarchar"		};
 bif_type_t bt_varbinary		= {NULL	, DV_BIN		, 0	, 0	, 0	, "varbinary"		};
@@ -508,7 +509,6 @@ bif_type_t bt_any_box		= {NULL	, DV_ARRAY_OF_POINTER	, 0	, 0	, 0	, "any array"		
 bif_type_t bt_iri_id		= {NULL	, DV_IRI_ID		, 0	, 0	, 0	, "IRI_ID"		};
 bif_type_t bt_integer		= {NULL	, DV_LONG_INT		, 0	, 0	, 0	, "integer"		};
 bif_type_t bt_integer_nn	= {NULL	, DV_LONG_INT		, 0	, 0	, 1	, "integer not null"	};
-bif_type_t bt_iri		= {NULL	, DV_IRI_ID		, 0	, 0	, 0	, "IRI_ID"		};
 bif_type_t bt_double		= {NULL	, DV_DOUBLE_FLOAT	, 0	, 0	, 0	, "double precision"	};
 bif_type_t bt_float		= {NULL	, DV_SINGLE_FLOAT	, 0	, 0	, 0	, "float"		};
 bif_type_t bt_numeric		= {NULL	, DV_NUMERIC		, 40	, 20	, 0	, "decimal"		};
@@ -8835,17 +8835,23 @@ bif_fvector (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 caddr_t
 bif_dvector (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 {
-  int len = BOX_ELEMENTS (args);
-  double *res = (double *) dk_alloc_box (len * sizeof (double),
-    DV_ARRAY_OF_DOUBLE);
-  int inx;
-  for (inx = 0; inx < len; inx++)
-  {
-    res[inx] = bif_double_arg (qst, args, inx, "dvector");
-  }
-  return ((caddr_t) res);
+  int total_len = 0;
+  int argctr, argcount = BOX_ELEMENTS (args);
+  double *res;
+  int res_fill = 0;
+  for (argctr = 0; argctr < argcount; argctr++)
+    {
+      double arg = bif_double_arg (qst, args, argctr, "dvector");
+      total_len++;
+    }
+  res = (double *)dk_alloc_box (sizeof (double) * total_len, DV_ARRAY_OF_DOUBLE);
+  for (argctr = 0; argctr < argcount; argctr++)
+    {
+      double arg = bif_double_arg (qst, args, argctr, "dvector");
+      res[res_fill++] = arg;
+    }
+  return (caddr_t)res;
 }
-
 
 #define boxes_match(X,Y) (DVC_MATCH == cmp_boxes((X),(Y), NULL, NULL))
 
@@ -9457,7 +9463,6 @@ bif_one_of_these (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
     }
   return (box_num (0));
 }
-
 
 void
 row_str_check (db_buf_t str)
@@ -10372,9 +10377,14 @@ do_long_string:
                     snprintf (tmp, sizeof (tmp), "#i" IIDBOXINT_FMT, (boxint)(iid) );
 		  break;
 		}
-	case DV_GEO:
-	  return geo_wkt (data);
+	  case DV_GEO:
+	      return geo_wkt (data);
 	  default:
+	      if (IS_GENERIC_DURATION (data))
+		{
+		  snprintf_generic_duration (tmp, sizeof (tmp), data);
+		  break;
+		}
 	      goto cvt_error;
 	}
       return (box_dv_short_string (tmp));
@@ -12439,7 +12449,6 @@ print_object_to_new_string (caddr_t xx, const char *fun_name, caddr_t * err_ret,
   strses_free (out);
   return (res);
 }
-
 
 caddr_t
 bif_serialize (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
@@ -16944,7 +16953,7 @@ sql_bif_init (void)
 
 /* String manipulation. */
   bif_define_ex ("length", bif_length, BMD_ALIAS, "char_length", BMD_ALIAS, "character_length", BMD_ALIAS, "octet_length",
-      BMD_RET_TYPE, &bt_integer, BMD_DONE);
+      BMD_RET_TYPE, &bt_integer_nn, BMD_DONE);
   bif_define_ex ("vec_length", bif_vec_length, BMD_RET_TYPE, &bt_integer, BMD_DONE);
   bif_define_ex ("vec_ref", bif_vec_ref, BMD_RET_TYPE, &bt_any_box, BMD_DONE);
   bif_define_ex ("aref", bif_aref, BMD_RET_TYPE, &bt_any_box, BMD_DONE);
@@ -17085,24 +17094,24 @@ sql_bif_init (void)
 
   bif_define_ex ("iri_id_num", bif_iri_id_num, BMD_RET_TYPE, &bt_integer, BMD_MIN_ARGCOUNT, 1, BMD_MAX_ARGCOUNT, 1, BMD_IS_PURE,
       BMD_DONE);
-  bif_define_ex ("iri_id_from_num", bif_iri_id_from_num, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 1, BMD_MAX_ARGCOUNT, 1,
+  bif_define_ex ("iri_id_from_num", bif_iri_id_from_num, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 1, BMD_MAX_ARGCOUNT, 1,
       BMD_IS_PURE, BMD_DONE);
   bif_define ("__set_64bit_min_bnode_iri_id"	, bif_set_64bit_min_bnode_iri_id);
-  bif_define_ex ("min_bnode_iri_id", bif_min_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT, 0,
+  bif_define_ex ("min_bnode_iri_id", bif_min_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT, 0,
       BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("max_bnode_iri_id", bif_max_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT, 0,
+  bif_define_ex ("max_bnode_iri_id", bif_max_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT, 0,
       BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("min_named_bnode_iri_id", bif_min_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
+  bif_define_ex ("min_named_bnode_iri_id", bif_min_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
       0, BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("min_32bit_bnode_iri_id", bif_min_32bit_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
+  bif_define_ex ("min_32bit_bnode_iri_id", bif_min_32bit_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
       0, BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("min_32bit_named_bnode_iri_id", bif_min_32bit_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0,
+  bif_define_ex ("min_32bit_named_bnode_iri_id", bif_min_32bit_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0,
       BMD_MAX_ARGCOUNT, 0, BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("min_64bit_bnode_iri_id", bif_min_64bit_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
+  bif_define_ex ("min_64bit_bnode_iri_id", bif_min_64bit_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0, BMD_MAX_ARGCOUNT,
       0, BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("min_64bit_named_bnode_iri_id", bif_min_64bit_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 0,
+  bif_define_ex ("min_64bit_named_bnode_iri_id", bif_min_64bit_named_bnode_iri_id, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 0,
       BMD_MAX_ARGCOUNT, 0, BMD_IS_PURE, BMD_DONE);
-  bif_define_ex ("iri_id_bnode32_to_bnode64", bif_iri_id_bnode32_to_bnode64, BMD_RET_TYPE, &bt_iri, BMD_MIN_ARGCOUNT, 1,
+  bif_define_ex ("iri_id_bnode32_to_bnode64", bif_iri_id_bnode32_to_bnode64, BMD_RET_TYPE, &bt_iri_id, BMD_MIN_ARGCOUNT, 1,
       BMD_MAX_ARGCOUNT, 1, BMD_IS_PURE, BMD_DONE);
   bif_define_ex ("iri_id_to_blank_nodeid", bif_iri_id_to_blank_nodeid, BMD_RET_TYPE, &bt_varchar, BMD_MIN_ARGCOUNT, 1,
       BMD_MAX_ARGCOUNT, 1, BMD_IS_PURE, BMD_DONE);
