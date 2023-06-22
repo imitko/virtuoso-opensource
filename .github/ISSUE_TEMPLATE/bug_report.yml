@@ -19,6 +19,25 @@ body:
     required: true
 - type: textarea
   attributes:
+    label: DataBase status report
+    description: Provide output from `status()` command.
+- type: textarea
+  attributes:
+    label: Call stacks
+    description: |
+      If you are reporting crash error include call stacks from core dump if available.
+      If you are observing unexpected error from built-in functions, 
+      then enable PL call stack for exceptions e.g. `__dbf_set('callstack_on_exception',2)`, 
+      error logging `trace_on('errors')` and provide output from error and server log file. 
+- type: textarea
+  attributes:
+    label: Executon(Query) plan and/or execution profile
+    description: |
+      If you are reporting unexpected result or unexpected execution time,
+      provide output from `explain()` and/or `profile()` command. 
+      You can also use command-line `isql` tool and use `set explain on` and `set profile on` (note: do not set both at same time).
+- type: textarea
+  attributes:
     label: Reproduction Steps
     description: Provide steps to reproduce the behavior
     placeholder: |
