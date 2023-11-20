@@ -1702,6 +1702,8 @@ sqlg_vec_setp (sql_comp_t * sc, setp_node_t * setp, dk_hash_t * res)
 int
 ssl_needs_ins_cast (state_slot_t * ssl, dbe_column_t * col)
 {
+  if (ssl->ssl_is_callret)
+    return 1;
   if (DV_WIDE == col->col_sqt.sqt_dtp && (DV_ANY == ssl->ssl_dc_dtp && DV_WIDE == ssl->ssl_sqt.sqt_dtp))
     return 0;
   if (DV_STRING == col->col_sqt.sqt_dtp && (DV_ANY == ssl->ssl_dc_dtp && DV_STRING == ssl->ssl_sqt.sqt_dtp))
@@ -4044,12 +4046,12 @@ sqlg_vec_ts (sql_comp_t * sc, table_source_t * ts)
 	else
 	  ks->ks_v_out_map[inx].om_cl = *key_find_cl (ks->ks_key, col_id);
 	ks->ks_v_out_map[inx].om_ssl = ssl;
+	  ssl_set_dc_type (ssl);
 	if (col)
 	  ks->ks_v_out_map[inx].om_ref = col_ref_func (ks->ks_key, col, ks->ks_v_out_map[inx].om_ssl);
 	ssl->ssl_type = SSL_VEC;
 	if (!ssl->ssl_box_index)
 	  ssl->ssl_box_index = cc_new_instance_slot (sc->sc_cc);
-	ssl_set_dc_type (ssl);
       }
     ASG_SSL (NULL, NULL, ssl);
     t_set_delete (&sc->sc_ssl_prereset_only, (void *) ssl);	/* in a proc view the row ctr is assigned first in precode and then in the ts, must be in the continue reset list, else will overflow */
