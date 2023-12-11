@@ -2472,6 +2472,8 @@ ws_cors_check (ws_connection_t * ws, char * buf, size_t buf_len)
   return 1;
 }
 
+#define CONTENT_ALLOWED(ws) (101 != (ws)->ws_status_code && 204 != (ws)->ws_status_code && 304 != (ws)->ws_status_code)
+
 void
 ws_strses_reply (ws_connection_t * ws, const char * volatile code)
 {
@@ -2638,7 +2640,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
 	}
 /*      fprintf (stdout, "\nREPLY-----\n%s", tmp); */
       /* mime type */
-      if (ws->ws_status_code != 101 && WS_NOT_HDR (ws, "Content-Type:"))
+      if (CONTENT_ALLOWED(ws) && WS_NOT_HDR (ws, "Content-Type:"))
 	{
 #ifdef BIF_XML
 	  if (media_type)
@@ -2716,7 +2718,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
 
       if (WS_NOT_HDR (ws, "Accept-Ranges"))
 	{
-	  if (ws->ws_status_code != 101)
+          if (CONTENT_ALLOWED(ws))
 	    SES_PRINT (ws->ws_session, "Accept-Ranges: bytes\r\n");
 	}
 
@@ -2736,7 +2738,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
 	  snprintf (tmp, sizeof (tmp), "Transfer-Encoding: chunked\r\nContent-Encoding: gzip\r\n");
 	  SES_PRINT (ws->ws_session, tmp);
 	}
-      else if (ws->ws_status_code != 101 && WS_NOT_HDR(ws, "Content-Length:")) /* plain body */
+      else if (CONTENT_ALLOWED(ws) && WS_NOT_HDR(ws, "Content-Length:")) /* plain body */
 	{
 	  snprintf (tmp, sizeof (tmp), "Content-Length: %ld\r\n", len);
 	  SES_PRINT (ws->ws_session, tmp);
@@ -2745,7 +2747,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
       SES_PRINT (ws->ws_session, "\r\n"); /* empty line */
 
       /* write body */
-      if (ws->ws_method != WM_HEAD)
+      if (ws->ws_method != WM_HEAD && CONTENT_ALLOWED(ws))
 	{
 	  if (cnt_enc == WS_CE_CHUNKED)
 	    {
@@ -5432,6 +5434,8 @@ http_session_no_catch_arg (caddr_t * qst, state_slot_t ** args, int nth,
   return res;
 }
 
+#define HTTP_URL_ESCAPED 0
+#define HTTP_URL_DECODED 1
 
 caddr_t
 http_path_to_array (char * path, int mode)
@@ -5451,9 +5455,9 @@ http_path_to_array (char * path, int mode)
       if (n_fill > sizeof (name) - 3)
 	break;
       if ((0 == ch || ' ' == ch || '\n' == ch || '\r' == ch || '\t' == ch
-	  || ch == '?') && mode == 0)
+	  || ch == '?') && HTTP_URL_ESCAPED == mode)
 	break;
-      if (0 == ch  && mode == 1)
+      if (0 == ch  && HTTP_URL_DECODED == mode)
 	break;
       if (ch == '/')
 	{
@@ -5463,7 +5467,7 @@ http_path_to_array (char * path, int mode)
 	      n_fill = 0;
 	    }
 	}
-      else if (ch == '%')
+      else if (ch == '%' && HTTP_URL_ESCAPED == mode)
 	{
 	  if (inx >= max || (inx+1) >= max)
 	    {
@@ -6171,7 +6175,7 @@ bif_http_internal_redirect (caddr_t * qst, caddr_t * err_ret, state_slot_t ** ar
 	dk_free_tree (ws->ws_path_string);
       dk_free_tree ((caddr_t)(ws->ws_path));
       ws->ws_path_string = box_copy (new_path);
-      parr = (caddr_t *) http_path_to_array (new_path, 1);
+      parr = (caddr_t *) http_path_to_array (new_path, HTTP_URL_DECODED);
       ws->ws_path = ((NULL != parr) ? parr : (caddr_t *) list(0));
     }
 
@@ -6184,7 +6188,7 @@ bif_http_internal_redirect (caddr_t * qst, caddr_t * err_ret, state_slot_t ** ar
       dk_free_tree (ws->ws_p_path_string);
       dk_free_tree ((caddr_t)(ws->ws_p_path));
       ws->ws_p_path_string = box_copy (new_phy_path);
-      parr = (caddr_t *) http_path_to_array (new_phy_path, 1);
+      parr = (caddr_t *) http_path_to_array (new_phy_path, HTTP_URL_DECODED);
       ws->ws_p_path = ((NULL != parr) ? parr : (caddr_t *) list(0));
       ws->ws_proxy_request = (ws->ws_p_path_string ? (0 == strnicmp (ws->ws_p_path_string, "http://", 7)) : 0);
     }
@@ -9745,7 +9749,7 @@ get_http_map (ws_http_map_t ** ws_map, char * lpath, int dir, char * host, char 
   ws_http_map_t ** last_match = NULL;
   int inx, len, elm, rlen, n;
   caddr_t res = NULL;
-  caddr_t * paths = (caddr_t *) http_path_to_array (lpath, 0);
+  caddr_t * paths = (caddr_t *) http_path_to_array (lpath, HTTP_URL_ESCAPED);
   caddr_t path_str;
   if (!ws_map)
     return NULL;
@@ -9987,7 +9991,7 @@ ws_set_phy_path (ws_connection_t * ws, int dir, char * vsp_path)
       ppath = get_http_map (&(ws->ws_map), lpath, dir, listen_host, listen_host);
     }
   ws->ws_p_path_string = ppath;
-  ws->ws_p_path = (caddr_t *) http_path_to_array (ppath, 1);
+  ws->ws_p_path = (caddr_t *) http_path_to_array (ppath, HTTP_URL_DECODED);
 #ifdef _SSL
   if (enable_https_vd_renegotiate && is_https && ws->ws_map && ws->ws_map->hm_ssl_verify_mode != verify_mode)
     {
@@ -10453,6 +10457,16 @@ bif_is_http_ctx (caddr_t *qst, caddr_t * err_ret, state_slot_t **args)
     return box_num(0);
   return box_num(1);
 }
+
+static caddr_t
+bif_is_http_error_handler (caddr_t *qst, caddr_t * err_ret, state_slot_t **args)
+{
+  query_instance_t *qi = (query_instance_t *)qst;
+  if (!qi->qi_client->cli_ws)
+    return box_num(0);
+  return box_num(qi->qi_client->cli_ws->ws_in_error_handler);
+}
+
 
 int
 ws_is_https (ws_connection_t * ws)
@@ -12062,6 +12076,7 @@ http_init_part_one ()
   bif_define_ex ("http_body_read", bif_http_body_read, BMD_RET_TYPE, &bt_any, BMD_DONE);
   bif_define_ex ("__http_stream_params", bif_http_stream_params, BMD_RET_TYPE, &bt_any, BMD_DONE);
   bif_define_ex ("is_http_ctx", bif_is_http_ctx, BMD_RET_TYPE, &bt_any, BMD_DONE);
+  bif_define_ex ("is_http_error_handler", bif_is_http_error_handler, BMD_RET_TYPE, &bt_integer, BMD_DONE);
   bif_define_ex ("is_https_ctx", bif_is_https_ctx, BMD_RET_TYPE, &bt_any, BMD_DONE);
   bif_define_ex ("http_is_flushed", bif_http_is_flushed, BMD_RET_TYPE, &bt_any, BMD_DONE);
   bif_define ("https_renegotiate", bif_https_renegotiate);

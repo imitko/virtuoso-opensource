@@ -995,7 +995,7 @@ sqlo_df (sqlo_t * so, ST * tree)
 	  {
 	    int arginx;
 	    _DO_BOX_FAST (arginx, tree->_.fn_ref.fn_arglist)
-	      sqlo_df (so, tree->_.fn_ref.fn_arg);
+              sqlo_df (so, tree->_.fn_ref.fn_arglist[arginx]);
 	    END_DO_BOX_FAST;
 	  }
 	so->so_is_top_and = saved_top_and;
@@ -2198,6 +2198,8 @@ sqlo_place_exp (sqlo_t * so, df_elt_t * super, df_elt_t * dfe)
 	placed = dfe_skip_exp_dfes (placed, &dfe, 1);
 	so->so_mark_gb_dep = 1;
 	sqlo_place_dfe_after (so, pref_loc, placed, dfe);
+        if (!dfe->_.sub.ot)
+          SQL_GPF_T1 (so->so_sc->sc_cc, "Can not place expression");
 	dfe->_.sub.ot->ot_work_dfe = dfe_container (so, DFE_VALUE_SUBQ, placed);
 	dfe->_.sub.ot->ot_work_dfe->_.sub.in_arity = dfe_arity_with_supers (dfe->dfe_prev);
 	best = sqlo_layout (so, dfe->_.sub.ot, SQLO_LAY_VALUES, super);
