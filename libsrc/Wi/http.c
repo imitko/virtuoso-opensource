@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2023 OpenLink Software
+ *  Copyright (C) 1998-2024 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -968,7 +968,6 @@ const char * http_log_format = WS_LOG_DEFAULT_FMT;
 
 #define TZ_TO_HHMM(x)  ((x / 60) * 100 + (x % 60))
 
-#ifndef WS_OLD_LOG
 #define WS_LOG_ERROR \
       mutex_enter (ws_http_log_mtx); \
       fflush (http_log); \
@@ -985,7 +984,7 @@ static void
 log_info_http (ws_connection_t * ws, const char * code, OFF_T clen)
 {
   char * new_log = NULL;
-  char tmp[4096];
+  char tmp[HTTP_MAX_REQUEST_LEN];
   int tmp_len = sizeof (tmp) - sizeof (ws->ws_proto) - 1;
   char format[100];
   char buf[DKSES_OUT_BUFFER_LENGTH];
@@ -1157,80 +1156,6 @@ format_string_completed:
   mutex_leave (ws_http_log_mtx);
   return;
 }
-#else
-static void
-log_info_http (ws_connection_t * ws, const char * code, OFF_T len)
-{
-  char buf[4096];
-  struct tm *tm;
-#if defined (HAVE_LOCALTIME_R) && !defined (WIN32)
-  struct tm tm1;
-#endif
-  time_t now;
-  int month, day, year;
-  int http_resp_code = 0;
-  caddr_t u_id = NULL;
-  caddr_t referer = NULL;
-  caddr_t user_agent = NULL;
-  char * new_log = NULL;
-
-  if (!http_log || !ws)
-    return;
-
-  if (code)
-    sscanf (code, "%*s %i", &http_resp_code);
-
-  referer = ws_get_packed_hf (ws, "Referer:", "");
-  user_agent = ws_get_packed_hf (ws, "User-Agent:", "");
-
-  buf[0] = 0;
-  time (&now);
-#if defined (HAVE_LOCALTIME_R) && !defined (WIN32)
-  tm = localtime_r (&now, &tm1);
-#else
-  tm = localtime (&now);
-#endif
-  month = tm->tm_mon + 1;
-  day = tm->tm_mday;
-  year = tm->tm_year + 1900;
-
-  u_id = ws_auth_get (ws);
-
-  snprintf (buf, sizeof (buf), "%s %s [%02d/%s/%04d:%02d:%02d:%02d %+05d] \"%.2000s%s\" %d " OFF_T_PRINTF_FMT " \"%.1000s\" \"%.500s\"\n",
-      ws->ws_client_ip, u_id, (tm->tm_mday), monthname [month - 1], year,
-      tm->tm_hour, tm->tm_min, tm->tm_sec, TZ_TO_HHMM(dt_local_tz_for_logs),
-      (ws->ws_req_line
-#ifdef WM_ERROR
-       && ws->ws_method != WM_ERROR
-#endif
-       ? ws->ws_req_line : "GET unspecified"),
-      ws->ws_proto, http_resp_code, (OFF_T_PRINTF_DTP) len, referer ? referer : "", user_agent ? user_agent : "");
-
-  dk_free_box (u_id);
-  dk_free_box (referer);
-  dk_free_box (user_agent);
-
-  mutex_enter (ws_http_log_mtx);
-  new_log = http_log_file_check (tm);
-  if (new_log)
-    {
-      fflush (http_log);
-      fclose (http_log);
-      http_log = fopen (new_log, "a");
-      if (!http_log)
-	{
-	  log_error ("Can't open new HTTP log file (%s)", new_log);
-	  mutex_leave (ws_http_log_mtx);
-	  return;
-	}
-    }
-  fputs (buf, http_log);
-  fflush (http_log);
-  mutex_leave (ws_http_log_mtx);
-
-  return;
-}
-#endif
 
 
 caddr_t
@@ -2087,7 +2012,7 @@ static caddr_t *
 ws_header_line_to_array (caddr_t string)
 {
   int len;
-  char buf [10000];
+  char buf [HTTP_MAX_REQUEST_LEN];
   dk_set_t lines = NULL;
   caddr_t * headers = NULL;
   dk_session_t * ses = NULL;
@@ -2610,7 +2535,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
   accept_gz = ws_get_packed_hf (ws, "Accept-Encoding:", "");
   if (IS_CHUNKED_OUTPUT (ws))
     cnt_enc = WS_CE_CHUNKED;
-  else if (enable_gzip && accept_gz && strstr (accept_gz, "gzip") && ws->ws_proto_no == 11 && ws->ws_status_code > 199)
+  else if (enable_gzip && accept_gz && strstr (accept_gz, "gzip") && ws->ws_proto_no == 11 && ws->ws_status_code > 199 && CONTENT_ALLOWED(ws))
     {
       cnt_enc = WS_CE_GZIP;
       ws->ws_try_pipeline = 0; /* browsers based on webkit workaround */
@@ -2747,7 +2672,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
       SES_PRINT (ws->ws_session, "\r\n"); /* empty line */
 
       /* write body */
-      if (ws->ws_method != WM_HEAD && CONTENT_ALLOWED(ws))
+      if (ws->ws_method != WM_HEAD)
 	{
 	  if (cnt_enc == WS_CE_CHUNKED)
 	    {
@@ -2764,7 +2689,7 @@ ws_strses_reply (ws_connection_t * ws, const char * volatile code)
 	    {
 	      strses_write_out_gz (ws->ws_strses, ws->ws_session, &gzctx);
 	    }
-	  else if (WS_NOT_HDR (ws, "Content-Length:"))
+         else if (WS_NOT_HDR (ws, "Content-Length:") && CONTENT_ALLOWED(ws))
 	    {
 	      strses_write_out (ws->ws_strses, ws->ws_session);
 	    }
@@ -4353,7 +4278,7 @@ run_in_dav:
 #endif
       if (!sch_proc_def (isp_schema (NULL), p_name)
 	  || !ws->ws_map
-	  || !ws->ws_map->hm_vsp_uid)
+	  || (!deflt && !ws->ws_map->hm_vsp_uid))
 	{
 	  strcpy_ck (p_name, "WS.WS.DEFAULT");
 	  deflt = 1;
@@ -4636,7 +4561,7 @@ http_set_client_address (ws_connection_t * ws)
 void
 ws_read_req (ws_connection_t * ws)
 {
-  char line [10000];
+  char line [HTTP_MAX_REQUEST_LEN];
   timeout_t timeout;
   acl_hit_t * hit = NULL;
   dk_session_t * ses = ws->ws_session;

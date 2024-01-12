@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2023 OpenLink Software
+ *  Copyright (C) 1998-2024 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -228,10 +228,10 @@ sqlc_make_sort_out_node (sql_comp_t * sc, dk_set_t out_cols, dk_set_t out_slots,
 
 
 void
-sqlc_copy_ssl_if_constant (sql_comp_t * sc, state_slot_t ** ssl_ret, dk_set_t * asg_code, setp_node_t * setp)
+sqlc_copy_ssl_if_constant_or_param (sql_comp_t * sc, state_slot_t ** ssl_ret, dk_set_t * asg_code, setp_node_t * setp)
 {
   state_slot_t *ssl = *ssl_ret;
-  if (SSL_CONSTANT == ssl->ssl_type || ssl->ssl_qr_global)
+  if (SSL_CONSTANT == ssl->ssl_type || ssl->ssl_qr_global || SSL_PARAMETER == ssl->ssl_type || IS_SSL_REF_PARAMETER(ssl->ssl_type))
     {
       state_slot_t * v = ssl_new_variable (sc->sc_cc, "", DV_UNKNOWN);
       ssl_copy_types (v, ssl);
