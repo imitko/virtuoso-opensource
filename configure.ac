@@ -30,8 +30,8 @@ AC_PREREQ(2.59)
 
 m4_define(vos_major,	[7])
 m4_define(vos_minor,	[2])
-m4_define(vos_patch,	[12])
-m4_define(vos_devel,	[])
+m4_define(vos_patch,	[13])
+m4_define(vos_devel,	[-dev])
 
 AC_INIT([Virtuoso Open Source Edition (Column Store)],
 	vos_major.vos_minor.vos_patch[]vos_devel,
@@ -914,8 +914,8 @@ then
 	/* LibreSSL defines OPENSSL_VERSION_NUMBER 0x20000000L but uses a compatible API to OpenSSL v1.0.x */
 	#elif OPENSSL_VERSION_NUMBER < 0x1020000fL
 	/* OpenSSL versions 0.9.8e - 1.1.1 are supported */
-       #elif OPENSSL_VERSION_NUMBER < 0x30200000L
-       /* OpenSSL version 3.1.x is supported */
+       #elif OPENSSL_VERSION_NUMBER < 0x30300000L
+       /* OpenSSL version 3.2.x is supported */
 	#else
 	#error OpenSSL version too new
 	#endif
