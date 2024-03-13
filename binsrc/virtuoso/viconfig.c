@@ -163,9 +163,9 @@ extern long vdb_use_global_pool; /* from sqlrrun.c */
 extern unsigned long vdb_oracle_catalog_fix; /* from odbccat.c */
 extern long vdb_attach_autocommit; /* from odbccat.c */
 extern int32 http_keep_alive_timeout;
-extern long http_max_keep_alives;
-extern long http_max_cached_proxy_connections;
-extern long http_proxy_connection_cache_timeout;
+extern int32 http_max_keep_alives;
+extern int32 http_max_cached_proxy_connections;
+extern int32 http_proxy_connection_cache_timeout;
 extern char * http_server_id_string;
 extern const char * http_client_id_string;
 extern char * http_access_control_allow_default_headers;
@@ -1996,7 +1996,7 @@ new_cfg_set_checkpoint_interval (int32 f)
  *  Simply passes all configuration to the db.
  */
 void
-new_db_read_cfg (dbe_storage_t * ignore, char *mode)
+new_db_read_cfg (dbe_storage_t * ignore, const char *mode)
 {
   main_bufs = c_number_of_buffers;
   cf_lock_in_mem = c_lock_in_mem;
@@ -2370,7 +2370,7 @@ cfg_get_max_dirty_buffers (PCONFIG pc, char *sec, char *attr, int32 * sz)
 
 
 void
-new_dbs_read_cfg (dbe_storage_t * dbs, char *ignore_file_name)
+new_dbs_read_cfg (dbe_storage_t * dbs, const char *ignore_file_name)
 {
   char temp_string[2048];
   char *section = dbs->dbs_name;
