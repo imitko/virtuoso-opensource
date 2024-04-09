@@ -1918,11 +1918,11 @@ ECHO BOTH $IF $NEQ $STATE OK "PASSED" "***FAILED";
 SET ARGV[$LIF] $+ $ARGV[$LIF] 1;
 ECHO BOTH ": " $U{caseno} " STATE=" $STATE " MESSAGE=" $MESSAGE "\n";
 
--- set U{caseno} case1254;
--- SELECT identity_generation x FROM information_schema . columns ORDER BY ( LENGTH ( id_to_iri ( RAND ( -17.400000 ) ) ) - CASE WHEN ( SELECT CASE WHEN x THEN 's' END ) THEN 1492 END );
--- ECHO BOTH $IF $NEQ $STATE OK "PASSED" "***FAILED";
--- SET ARGV[$LIF] $+ $ARGV[$LIF] 1;
--- ECHO BOTH ": " $U{caseno} " STATE=" $STATE " MESSAGE=" $MESSAGE "\n";
+set U{caseno} case1254;
+SELECT identity_generation x FROM information_schema . columns ORDER BY ( LENGTH ( id_to_iri ( RAND ( -17.400000 ) ) ) - CASE WHEN ( SELECT CASE WHEN x THEN 's' END ) THEN 1492 END );
+ECHO BOTH $IF $NEQ $STATE OK "PASSED" "***FAILED";
+SET ARGV[$LIF] $+ $ARGV[$LIF] 1;
+ECHO BOTH ": " $U{caseno} " STATE=" $STATE " MESSAGE=" $MESSAGE "\n";
 
 set U{caseno} case1255;
 SELECT ( SELECT x FROM ( SELECT ( '127.0.0.1' ) x FROM ( SELECT x ) x GROUP BY CUBE ( NULL ) ) x WHERE x > '2010-01-01T00:00:00Z' ) x FROM ( SELECT CASE WHEN 'foo.boo[]' THEN 1 END x ) x GROUP BY ( x );
@@ -2022,7 +2022,7 @@ ECHO BOTH ": " $U{caseno} " STATE=" $STATE " MESSAGE=" $MESSAGE "\n";
 
 set U{caseno} case1271;
 SELECT 3.140000 * RAND ( 1234 ) FROM RDF_QUAD GROUP BY CONNECTION_ID ( ) ORDER BY 1 , ( SELECT ( RAND ( 1234 ) ) );
-ECHO BOTH $IF $NEQ $STATE OK "PASSED" "***FAILED";
+ECHO BOTH $IF $EQU $STATE OK "PASSED" "***FAILED";
 SET ARGV[$LIF] $+ $ARGV[$LIF] 1;
 ECHO BOTH ": " $U{caseno} " STATE=" $STATE " MESSAGE=" $MESSAGE "\n";
 
