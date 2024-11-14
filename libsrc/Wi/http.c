@@ -1957,7 +1957,7 @@ ws_clear (ws_connection_t * ws, int error_cleanup)
 
 char http_server_id_string_buf [1024];
 char *http_server_id_string = NULL;
-const char *http_client_id_string = "Mozilla/4.0 (compatible; OpenLink Virtuoso)";
+char *http_client_id_string = "Mozilla/4.0 (compatible; OpenLink Virtuoso)";
 uint32 http_default_client_req_timeout = 100;
 extern char * https_csp;
 
@@ -2803,7 +2803,7 @@ static char *fmt1 =
 
 #define REPLY_SENT "reply sent"
 
-const char *www_root = ".";
+char *www_root = ".";
 
 
 static int
@@ -8843,11 +8843,11 @@ http_map_fill_cors_allow_headers (caddr_t option_value)
       if (NULL == ht)
         ht = id_strcase_hash_create (7);
       if (h[0] != '!' || 0 == stricmp (h, "!ALL")) /* expilicitly added header, or all custom disabled */
-        id_hash_set (ht, &h, (caddr_t) &one);
+        id_hash_set (ht, (caddr_t) &h, (caddr_t) &one);
       else /* explicitly denied header */
         {
           caddr_t he = box_dv_short_string (h+1);
-          id_hash_set (ht, &he, (caddr_t) &two);
+          id_hash_set (ht, (caddr_t) &he, (caddr_t) &two);
         }
     }
   END_DO_SET();
@@ -8855,10 +8855,10 @@ http_map_fill_cors_allow_headers (caddr_t option_value)
   /* default allowed headers, except if denied explicitly, see above */
   DO_SET (caddr_t, h, &http_default_allow_headers_list)
     {
-      ptrlong * flag = id_hash_get (ht, (caddr_t) &h);
+      ptrlong * flag = (ptrlong *) id_hash_get (ht, (caddr_t) &h);
       if (flag && 2 == flag[0])
         continue;
-      id_hash_set (ht, &h, (caddr_t) &one);
+      id_hash_set (ht, (caddr_t) &h, (caddr_t) &one);
     }
   END_DO_SET();
 
@@ -11665,7 +11665,7 @@ bif_http_get_cli_sessions (caddr_t * qst, caddr_t * err_ret, state_slot_t ** arg
   while (dk_hit_next (&hit, (void**) &sid, (void**) &ses))
     {
       caddr_t * args = (caddr_t *) DKS_DB_DATA (ses);
-      dk_set_push (&set, list (2, box_num(sid), add_args ? box_copy_tree (args) : NEW_DB_NULL));
+      dk_set_push (&set, list (3, box_num(sid), add_args ? box_copy_tree (args) : NEW_DB_NULL, box_num((boxint)ses->dks_n_threads)));
     }
   mutex_leave (ws_cli_mtx);
   return list_to_array (dk_set_nreverse (set));
@@ -11676,9 +11676,11 @@ bif_http_client_session_cached (caddr_t * qst, caddr_t * err_ret, state_slot_t *
 {
   boxint id = bif_long_arg (qst, args, 0, "http_client_session_cached");
   boxint ret;
+  dk_session_t * ses;
   mutex_enter (ws_cli_mtx);
-  ret = ((NULL != gethash ((void *) (ptrlong) id, ws_cli_sessions)) ? 1 : 0);
+  ses = (dk_session_t *) gethash ((void *) (ptrlong) id, ws_cli_sessions);
   mutex_leave (ws_cli_mtx);
+  ret = (ses && ses->dks_n_threads ? 1 : (ses ? 2 : 0));
   return box_num (ret);
 }
 
@@ -11690,18 +11692,21 @@ bif_http_on_message (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   caddr_t func = bif_string_arg (qst, args, 1, "http_on_message");
   caddr_t cd = bif_arg (qst, args, 2, "http_on_message");
   int signal_on_disconnected = BOX_ELEMENTS(args) > 3 ? bif_long_arg (qst, args, 3, "http_on_message") : 1;
+  int keep_conn_ref = BOX_ELEMENTS(args) > 4 ? bif_long_arg (qst, args, 4, "http_on_message") : 0; /* use on client side to keep ses ref */
   dk_session_t * ses = NULL;
   ws_connection_t * ws = qi->qi_client->cli_ws;
 
   if (DV_CONNECTION == DV_TYPE_OF (conn))
     {
+      int server_session = 0;
       ses = (dk_session_t *) conn[0];
+      server_session = (ws && ses && ses == ws->ws_session);
       if (ses && DKSESSTAT_ISSET (ses, SST_OK))
-        conn[0] = NULL;
+        conn[0] = keep_conn_ref && !server_session ? (caddr_t) ses : (caddr_t) NULL;
       else
 	ses = NULL;
       mutex_enter (thread_mtx);
-      if (ws && ses && ses == ws->ws_session)
+      if (server_session)
 	{
 	  ws->ws_session->dks_ws_status = DKS_WS_CACHED;
 	  ws->ws_session->dks_n_threads++;
