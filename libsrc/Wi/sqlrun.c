@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2024 OpenLink Software
+ *  Copyright (C) 1998-2025 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -3076,7 +3076,7 @@ skip_node_input (skip_node_t * sk, caddr_t * inst, caddr_t * qst)
   qi->qi_set = 0;
   skip = sk->sk_top_skip ? unbox (QST_GET (qst, sk->sk_top_skip)) : 0;
   top = sk->sk_top ? unbox (QST_GET (qst, sk->sk_top)) : -1;
-  /* TBD: skip_only = (top == -1 && skip >= 0 ? 1 : 0); */
+  skip_only = (top == -1 && skip >= 0 ? 1 : 0);
   if (skip < 0)
     sqlr_new_error ("22023", "SR349", "SKIP parameter < 0");
   if (top < 0 && !skip_only)
