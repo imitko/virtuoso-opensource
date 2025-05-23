@@ -53,7 +53,7 @@ static dk_hash_t  *hdl_ht = NULL;
 static dk_mutex_t *hdl_mtx = NULL;
 
 void
-virt_handle_init ()
+virt_handle_init (void)
 {
   hdl_ht = hash_table_allocate (1001);
   if (!hdl_ht)
@@ -63,7 +63,7 @@ virt_handle_init ()
 }
 
 void
-virt_handle_cleanup ()
+virt_handle_cleanup (void)
 {
   if (!hdl_ht || !hdl_mtx)
     return;
@@ -849,7 +849,7 @@ ssl_get_password (char * name, char *tpass)
 #ifdef INPROCESS_CLIENT
 
 static void *
-get_inprocess_client ()
+get_inprocess_client (void)
 {
 #ifndef USE_DYNAMIC_LOADER
   return (void *) 1;
@@ -2216,7 +2216,7 @@ SQLPrepare (
 
     NMAKE_INPUT_ESCAPED_NARROW (SqlStr, stmt->stmt_connection);
 
-    rc = virtodbc__SQLPrepare (hstmt, szSqlStr, SQL_NTS);
+    rc = virtodbc__SQLPrepare (hstmt, szSqlStr, cbSqlStr);
 
     NFREE_INPUT_NARROW (SqlStr);
   }
