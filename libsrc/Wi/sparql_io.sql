@@ -1554,7 +1554,7 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
       typ := rdf_box_type (val);
       if (not isstring (dat))
         {
-          http ('"type": "typed-literal", "datatype": "', ses);
+          http ('"type": "literal", "datatype": "', ses);
           if (257 <> typ)
             res := coalesce ((select RDT_QNAME from DB.DBA.RDF_DATATYPE where RDT_TWOBYTE = typ));
           else
@@ -1565,7 +1565,7 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
         }
       else if (257 <> typ)
         {
-          http ('"type": "typed-literal", "datatype": "', ses);
+          http ('"type": "literal", "datatype": "', ses);
           res := coalesce ((select RDT_QNAME from DB.DBA.RDF_DATATYPE where RDT_TWOBYTE = typ));
           http_escape (res, 14, ses, 1, 1);
           http ('", "value": "', ses);
@@ -1629,7 +1629,7 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
     }
   else
     {
-      http ('"type": "typed-literal", "datatype": "', ses);
+      http ('"type": "literal", "datatype": "', ses);
       http_escape (cast (__xsd_type (val) as varchar), 14, ses, 1, 1);
       http ('", "value": "', ses);
       http_escape (__rdf_strsqlval (val), 14, ses, 1, 1);
@@ -2813,8 +2813,8 @@ create procedure WS.WS."/!sparql/" (inout path varchar, inout params any, inout 
 
   paramcount := length (params);
 
-  if ((0 = paramcount) or
-      (((2 = paramcount) and ('Content' = params[0])) and soap_ver = 0) or
+  if ((http_meth <> 'POST' and ((0 = paramcount) or
+      (((2 = paramcount) and ('Content' = params[0])) and soap_ver = 0))) or
       qtxt = 1)
     {
        declare redir, acc varchar;
