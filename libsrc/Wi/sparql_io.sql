@@ -1627,6 +1627,13 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
       http ('"type": "literal", "value": "', ses);
       http_escape (serialize_to_UTF8_xml (val), 14, ses, 1, 1);
     }
+  else if (isnumeric(val) or __tag (val) in (__tag of date, __tag of time, __tag of datetime))
+    {
+      http ('"type": "literal", "datatype": "', ses);
+      http_escape (cast (__xsd_type (val) as varchar), 14, ses, 1, 1);
+      http ('", "value": "', ses);
+      http_escape (__rdf_strsqlval (val), 14, ses, 1, 1);
+    }
   else
     {
       http ('"type": "literal", "value": "', ses);
@@ -2106,9 +2113,19 @@ create function DB.DBA.SPARQL_RESULTS_WRITE (inout ses any, inout metas any, ino
       else if (ret_format = 'JSON;ODATA')
         DB.DBA.RDF_TRIPLES_TO_ODATA_JSON (triples, ses);
       else if (ret_format = 'CXML')
-        DB.DBA.RDF_TRIPLES_TO_CXML (triples, ses, accept, bit_and (flags, 1), 0, status);
+       {
+         if (__proc_exists ('DB.DBA.RDF_TRIPLES_TO_CXML') is not null)
+            DB.DBA.RDF_TRIPLES_TO_CXML (triples, ses, accept, bit_and (flags, 1), 1, status);
+         else
+           http_status_set (406);
+       }
       else if (ret_format = 'CXML;QRCODE')
-        DB.DBA.RDF_TRIPLES_TO_CXML (triples, ses, accept, bit_and (flags, 1), 1, status);
+       {
+         if (__proc_exists ('DB.DBA.RDF_TRIPLES_TO_CXML') is not null)
+            DB.DBA.RDF_TRIPLES_TO_CXML (triples, ses, accept, bit_and (flags, 1), 1, status);
+         else
+           http_status_set (406);
+       }
       else if (ret_format = 'CSV')
         DB.DBA.RDF_TRIPLES_TO_CSV (triples, ses);
       else if (ret_format = 'TSV')
