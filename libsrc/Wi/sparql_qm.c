@@ -88,7 +88,7 @@ spar_qm_push_local (sparp_t *sparp, int key, SPART *value, int can_overwrite)
   SPART *old_value = spar_qm_get_local (sparp, key, 0);
   if ((!can_overwrite) && (NULL != old_value) && (old_value != value))
     spar_error (sparp, "%s: Can't redefine the '%s' property of quad mapping",
-      spar_source_place (sparp, NULL), spart_dump_opname (key, 0) );
+      spar_source_place (sparp, NULL), spart_dump_opname (key, 0, 0) );
   t_set_push (locptr, value);
   t_set_push (locptr, (caddr_t)((ptrlong)key));
 }
@@ -112,7 +112,7 @@ spar_qm_get_local (sparp_t *sparp, int key, int error_if_missing)
     }
   if ((NULL == res) && error_if_missing)
     spar_error (sparp, "%s: The '%s' property is not defined",
-      spar_source_place (sparp, NULL), spart_dump_opname (key, 0) );
+      spar_source_place (sparp, NULL), spart_dump_opname (key, 0, 0) );
   return res;
 }
 

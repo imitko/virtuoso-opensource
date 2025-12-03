@@ -847,9 +847,33 @@ extern void sparp_compile_smllist (sparp_t *sparp, caddr_t sml_iri_uname, void /
 extern int sparp_sql_function_name_is_unsafe (const char *buf);
 extern int sparp_bif_function_name_is_unsafe (const char *buf);
 
+#define SSC_S 1
+#define SSC_P 2
+#define SSC_O 4
+#define SSC_G 8
 
-extern const char *spart_dump_opname (ptrlong opname, int is_op);
-extern void spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *title, int hint);
+typedef struct spar_stat_ctx_s {
+  query_instance_t * st_qi;
+  int st_state;
+  caddr_t st_s;
+  caddr_t st_p;
+  caddr_t st_o;
+  caddr_t st_g;
+  int st_gp_count;
+  int st_triple_count;
+  int st_projecton_vars;
+  int st_distinct;
+  int st_group_by;
+  int st_order_by;
+  int st_limit;
+  int st_union;
+  int st_optional;
+  int st_constants;
+} spar_stat_ctx_t;
+
+
+extern const char *spart_dump_opname (ptrlong opname, int is_op, spar_stat_ctx_t *st);
+extern void spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *title, int hint, spar_stat_ctx_t *st);
 
 #define SPAR_IS_BLANK_OR_VAR(tree) \
   ((DV_ARRAY_OF_POINTER == DV_TYPE_OF (tree)) && \

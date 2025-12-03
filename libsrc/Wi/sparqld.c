@@ -295,7 +295,7 @@ ssg_sd_opname (sparp_t *sparp, ptrlong opname, int is_op)
     case SPAR_TRIPLE: return "Triple";
 #endif
   }
-  /*spar_sqlprint_error (t_box_sprintf (200, "ssg_" "sd_opname: unknown/unsupported opcode (%d, %s)", opname, spart_dump_opname (opname, is_op)));*/
+  /*spar_sqlprint_error (t_box_sprintf (200, "ssg_" "sd_opname: unknown/unsupported opcode (%d, %s)", opname, spart_dump_opname (opname, is_op, 0)));*/
   return NULL;
 }
 
@@ -1561,7 +1561,7 @@ args_printed:
         sprintf (buf, ") with %d children:\n", childrens-SPART_HEAD);
         SES_PRINT (ses, buf);
         for (ctr = SPART_HEAD; ctr < childrens; ctr++)
-          spart_dump (((void **)(tree))[ctr], ses, indent+2, NULL, 0);
+          spart_dump (((void **)(tree))[ctr], ses, indent+2, NULL, 0, NULL);
         return;
       }
 #endif

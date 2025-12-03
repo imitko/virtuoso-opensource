@@ -498,9 +498,9 @@ ssg_find_formatter_by_name_and_subtype (ccaddr_t name, ptrlong subtype,
   spar_error (NULL, "Unsupported format name '%.40s'", name);
 /*
 bad_ask:
-  spar_error (NULL, "Format name '%.30s' is not supported for boolean results made by SPARQL %s", name, spart_dump_opname (subtype, 0));
+  spar_error (NULL, "Format name '%.30s' is not supported for boolean results made by SPARQL %s", name, spart_dump_opname (subtype, 0, 0));
 bad_descr:
-  spar_error (NULL, "Format name '%.30s' is not supported for triple dictionaries made by SPARQL %s", name, spart_dump_opname (subtype, 0));
+  spar_error (NULL, "Format name '%.30s' is not supported for triple dictionaries made by SPARQL %s", name, spart_dump_opname (subtype, 0, 0));
 */
 }
 

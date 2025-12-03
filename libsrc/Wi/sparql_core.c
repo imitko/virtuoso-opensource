@@ -6042,12 +6042,15 @@ bif_sparql_explain (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   caddr_t str = bif_string_arg (qst, args, 0, "sparql_explain");
   int rewrite_all = (0 != ((2 > BOX_ELEMENTS (args)) ? 1 : bif_long_arg (qst, args, 1, "sparql_explain")));
   dk_session_t *res;
+  spar_stat_ctx_t stat;
   SPARP_SAVED_MP_SIZE_CAP;
   MP_START ();
   SPARP_TWEAK_MP_SIZE_CAP(THR_TMP_POOL,&sparqre);
   memset (&sparqre, 0, sizeof (spar_query_env_t));
   sparqre.sparqre_param_ctr = &param_ctr;
   sparqre.sparqre_qi = (query_instance_t *) qst;
+  memset(&stat, 0, sizeof(spar_stat_ctx_t));
+  stat.st_qi = (QI*)qst;
   sparp = sparp_query_parse (str, &sparqre, rewrite_all);
   if (NULL != sparqre.sparqre_catched_error)
     {
@@ -6064,9 +6067,9 @@ bif_sparql_explain (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   for (ctr = 0; ctr < sparp->sparp_macro_def_count; ctr++)
     {
       SPART *defm = sparp->sparp_macro_defs[ctr];
-      spart_dump (defm, res, 0, "MACRO DEFINITION", -1);
+      spart_dump (defm, res, 0, "MACRO DEFINITION", -1, NULL);
     }
-  spart_dump (sparp->sparp_entire_query, res, 0, "QUERY", -1);
+  spart_dump (sparp->sparp_entire_query, res, 0, "QUERY", -1, &stat);
 #if 1
   {
     int eq_ctr, eq_count;
