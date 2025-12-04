@@ -5330,6 +5330,15 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
                 spart_dump (tree->_.lit.datatype, ses, indent+2, "DATATYPE", 0, st);
               if (tree->_.lit.language)
                 spart_dump (tree->_.lit.language, ses, indent+2, "LANGUAGE", 0, st);
+              if (st && SSC_O  == st->st_state)
+                {
+                  caddr_t data = NULL;
+                  if (tree->_.lit.datatype || tree->_.lit.language)
+                    rdf_obj_of_typed_sqlval(tree->_.lit.val, RDF_LANG_STRING, tree->_.lit.language, &data);
+                  else
+                    rdf_obj_of_sqlval (tree->_.lit.val, &data);
+                  st->st_o = data;
+                }
               break;
             }
           case SPAR_QNAME:
@@ -5337,7 +5346,7 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
               snprintf (buf, sizeof (buf), "QNAME:");
               SES_PRINT (ses, buf);
               spart_dump (tree->_.lit.val, ses, indent+2, "IRI", 0, st);
-              if (st)
+              if (st && st->st_state)
                 {
                   iri_id_t iri = key_name_to_iri_id (st->st_qi->qi_client->cli_trx, tree->_.lit.val, 0);
                   switch(st->st_state)
@@ -5346,7 +5355,9 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
                       case SSC_S: ST_SET(st_s, iri); break;
                       case SSC_P: ST_SET(st_p, iri); break;
                       case SSC_O: ST_SET(st_o, iri); break;
-                      default: break;
+                      default: 
+                        dk_free_box(iri);
+                        break;
                     }
                 }
               break;

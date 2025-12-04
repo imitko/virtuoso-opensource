@@ -697,7 +697,7 @@ void qr_no_copy_ssls (query_t * qr, dk_hash_t * no_copy);
 
 #define OUTSIDE_PARSE_SEM \
   { \
-      int is_sem = sqlc_inside_sem; \
+      int is_sem = global_scs ? sqlc_inside_sem : 0; \
       if (is_sem) \
 	LEAVE_PARSE; 
 
