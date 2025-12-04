@@ -847,28 +847,31 @@ extern void sparp_compile_smllist (sparp_t *sparp, caddr_t sml_iri_uname, void /
 extern int sparp_sql_function_name_is_unsafe (const char *buf);
 extern int sparp_bif_function_name_is_unsafe (const char *buf);
 
+/* statistic context state, when collecting tripple data, indicate which position is qname */
 #define SSC_S 1
 #define SSC_P 2
 #define SSC_O 4
 #define SSC_G 8
 
+/* statistic context */
 typedef struct spar_stat_ctx_s {
-  query_instance_t * st_qi;
-  int st_state;
-  caddr_t st_s;
+  query_instance_t * st_qi; /* query instance doing the stats, explain */
+  int st_state; /* when dive in triple data, indicate what position is */
+  caddr_t st_s; /* then next four are set to eventual constants of the triple pattern to use in estimate */
   caddr_t st_p;
   caddr_t st_o;
   caddr_t st_g;
-  int st_gp_count;
-  int st_triple_count;
-  int st_projecton_vars;
+  int st_gp_count; /* cumulative count of GPs */
+  int st_triple_count; /* the rest should be self-evident */
+  int st_projecton_vars; 
   int st_distinct;
   int st_group_by;
   int st_order_by;
   int st_limit;
   int st_union;
   int st_optional;
-  int st_constants;
+  int st_constants; 
+  dk_set_t st_output; /* this is a list of json pairs, pushed in order or concatenated, depend of the implementation */
 } spar_stat_ctx_t;
 
 

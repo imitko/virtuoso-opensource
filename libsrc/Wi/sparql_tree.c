@@ -5139,11 +5139,15 @@ spart_dump_valmode (ssg_valmode_t valmode, dk_session_t *ses, int indent, const 
 
 int key_stat_to_spec (caddr_t data, dbe_key_t * key, int nth, search_spec_t *sp, it_cursor_t * itc, int * v_fill);
 
+/* the next give an estimate on rdf store index seek, can do only on leading key cols,
+ * for more precise may use a pre-defined queries, however this would do actual exec thus slow
+*/
+
 int64
 spart_estimate (spar_stat_ctx_t *st)
 {
   static dbe_table_t *quad = NULL;
-  static dbe_key_t *key_po = NULL;
+  static dbe_key_t *key_po = NULL, *key_gs = NULL, *key_sp = NULL, *key_op = NULL;
   int64 est = -1;
   it_cursor_t itc_auto;
   it_cursor_t * itc = &itc_auto;
@@ -5160,10 +5164,14 @@ spart_estimate (spar_stat_ctx_t *st)
     { 
       quad = sch_name_to_table (wi_inst.wi_schema, "DB.DBA.RDF_QUAD");
       key_po = tb_find_key(quad, "RDF_QUAD_POGS",0);
+      key_gs = tb_find_key(quad, "RDF_QUAD_GS",0);
+      key_sp = tb_find_key(quad, "RDF_QUAD_SP",0);
+      key_op = tb_find_key(quad, "RDF_QUAD_OP",0);
     }
   if (!quad || !key_po)
     return -1;
   key = quad->tb_primary_key;
+
   if (st->st_p && st->st_o && !st->st_s)
     {
       key = key_po;
@@ -5178,6 +5186,25 @@ spart_estimate (spar_stat_ctx_t *st)
       args[1] = st->st_s;
       args[2] = st->st_o;
       args[3] = st->st_g;
+    } 
+  /* the next are partial indexes, these will use index path, so not precise as may explode to larger sets */
+  else if (st->st_s) /* distinct S & P */
+    {
+      key = key_sp;
+      args[0] = st->st_s;
+      args[1] = st->st_p; /* not set, just for the record */
+    }
+  else if (st->st_o) /* distinct O & P */
+    {
+      key = key_op;
+      args[0] = st->st_o;
+      args[1] = st->st_p; /* not set, just for the record */
+    }
+  else if (st->st_g) /* distinct G & S */
+    {
+      key = key_gs;
+      args[0] = st->st_g;
+      args[1] = st->st_s; /* not set, just for the record */
     }
 
   if (DBE_NO_STAT_DATA == key->key_table->tb_count_estimate)
@@ -5211,6 +5238,8 @@ err:
   return est;
 }
 
+/* traverse the sparql tree and produce a text output, can use `st` context to fill estimates and collect stats,
+ * see ST_SET,ST_INC and something called estimate */
 void
 spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *title, int hint, spar_stat_ctx_t *st)
 {
