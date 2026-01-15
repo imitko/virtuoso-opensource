@@ -5,7 +5,7 @@ AC_PREREQ(2.59)
 #  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
 #  project.
 #
-#  Copyright (C) 1998-2025 OpenLink Software
+#  Copyright (C) 1998-2026 OpenLink Software
 #
 #  This project is free software; you can redistribute it and/or modify it
 #  under the terms of the GNU General Public License as published by the
@@ -2988,6 +2988,34 @@ AM_CONDITIONAL(WITH_SYNCML_VAD, test "x$with_syncml_vad" = "xyes")
 AM_CONDITIONAL(WITH_TUTORIAL_VAD, test "x$with_tutorial_vad" = "xyes")
 AM_CONDITIONAL(WITH_WEBSOCKETS_VAD, test "x$with_websockets_vad" = "xyes")
 
+
+##########################################################################
+##									##
+##  jemalloc 								##
+##									##
+##########################################################################
+AC_ARG_WITH(jemalloc, [dnl
+AC_HELP_STRING([--with-jemalloc(=DIR)], [extra jemalloc debugging code])
+AC_HELP_STRING([--disable-jemalloc (default)], [disable jemalloc debugging support])dnl
+],
+    [ with_jemalloc="$withval" ],
+    [ with_jemalloc="no" ]
+)
+
+if test "x$with_jemalloc" != "xno"
+then
+    BUILD_OPTS="$BUILD_OPTS jemalloc"
+    CCDEBUG="$CCDEBUG -DUSE_JEMALLOC"
+    CCOPT="-g"
+    AM_LDFLAGS="-g"
+    if test -d "$with_jemalloc"
+    then
+	ccincl="$ccincl -I$with_jemalloc"
+        srvrlibs="$srvrlibs -L"$with_jemalloc" -ljemalloc"
+    else
+        srvrlibs="$srvrlibs -ljemalloc"
+    fi
+fi
 
 
 ##########################################################################

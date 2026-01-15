@@ -8,7 +8,7 @@
  *  This file is part of the OpenLink Software Virtuoso Open-Source (VOS)
  *  project.
  *
- *  Copyright (C) 1998-2025 OpenLink Software
+ *  Copyright (C) 1998-2026 OpenLink Software
  *
  *  This project is free software; you can redistribute it and/or modify it
  *  under the terms of the GNU General Public License as published by the
@@ -2598,7 +2598,7 @@ bif_aset_1_2_zap (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   if (tgt_inx >= BOX_ELEMENTS (tgt) || src_inx_1 >= BOX_ELEMENTS (src)
       || DV_ARRAY_OF_POINTER != DV_TYPE_OF (src[src_inx_1])
       || src_inx_2 >= BOX_ELEMENTS (src[src_inx_1]))
-    sqlr_new_error ("42000", "VEC..",  "Bad arguments to aset_1_2_zap ");
+    sqlr_new_error ("42000", "VEC07",  "Bad arguments to aset_1_2_zap ");
   if (tgt[tgt_inx])
     dk_free_tree (tgt[tgt_inx]);
   tgt[tgt_inx] = src[src_inx_1][src_inx_2];
@@ -6777,7 +6777,7 @@ bif_isnotnull_vec (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args, state
     return;
   dc = QST_BOX (data_col_t *, qst, ret->ssl_index);
   if (BOX_ELEMENTS (args) < 1)
-    sqlr_new_error ("42001", "VEC..", "Not enough arguments for is_no_null");
+    sqlr_new_error ("42001", "VEC08", "Not enough arguments for is_no_null");
   DC_CHECK_LEN (dc, qi->qi_n_sets - 1);
   arg = QST_BOX (data_col_t *, qst, ssl->ssl_index);
   if (!arg->dc_any_null || ssl->ssl_sqt.sqt_non_null)
@@ -16935,6 +16935,53 @@ bif_rdf_valid_impl (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 }
 
 
+#ifdef USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+
+void
+je_write_cb (void *fd, const char *data)
+{
+  if (fd)
+    fputs (data, (FILE *) fd);
+}
+
+caddr_t
+bif_je_malloc_stats_print (caddr_t *qst, caddr_t *err_ret, state_slot_t **args)
+{
+  char *dp = bif_string_arg (qst, args, 0, "je_malloc_stats_print");
+  char *opts = bif_string_or_null_arg (qst, args, 1, "je_malloc_stats_print");
+  FILE *fd = dp ? fopen (dp, "at") : NULL;
+  malloc_stats_print (je_write_cb, fd, opts);
+  if (fd)
+    fclose (fd);
+  return NULL;
+}
+
+caddr_t
+bif_je_heap_profile (caddr_t *qst, caddr_t *err_ret, state_slot_t **args)
+{
+  const char *dp = bif_string_arg (qst, args, 0, "je_heap_profile");
+  mallctl ("prof.dump", NULL, NULL, &dp, sizeof (const char *));
+  return NULL;
+}
+
+caddr_t
+bif_je_heap_profile_reset (caddr_t *qst, caddr_t *err_ret, state_slot_t **args)
+{
+  mallctl ("prof.reset", NULL, NULL, NULL, NULL);
+  return NULL;
+}
+
+caddr_t
+bif_je_heap_profile_active (caddr_t *qst, caddr_t *err_ret, state_slot_t **args)
+{
+  long f = bif_long_arg (qst, args, 0, "je_heap_profile_active");
+  bool active = f ? true : false;
+  mallctl ("opt.prof_active", NULL, NULL, &active, sizeof (bool));
+  return NULL;
+}
+#endif
+
 void
 bif_sparql_init (void)
 {
@@ -17462,6 +17509,12 @@ sql_bif_init (void)
   bif_define ("all_allocs_at_line", bif_all_allocs_at_line);
   bif_define ("new_allocs_after", bif_new_allocs_after);
   bif_define ("mem_count", bif_mem_count);
+#endif
+#ifdef USE_JEMALLOC
+bif_define ("je_malloc_stats_print", bif_je_malloc_stats_print);
+bif_define ("je_heap_profile", bif_je_heap_profile);
+bif_define ("je_heap_profile_reset", bif_je_heap_profile_reset);
+bif_define ("je_heap_profile_active", bif_je_heap_profile_active);
 #endif
   bif_define_ex ("mem_get_current_total", bif_mem_get_current_total, BMD_RET_TYPE, &bt_integer, BMD_DONE);
   bif_define ("mem_summary", bif_mem_summary);
