@@ -5212,6 +5212,7 @@ spart_estimate (spar_stat_ctx_t *st)
   est = key->key_table->tb_count_estimate;
   if (args[0] != 0)
     {
+      est = 0;
       ITC_INIT (itc, key->key_fragments[0]->kf_it, NULL);
       itc_clear_stats (itc);
       memset (&specs,0,  sizeof (specs));
@@ -5378,6 +5379,8 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
               if (st && st->st_state)
                 {
                   iri_id_t iri = key_name_to_iri_id (st->st_qi->qi_client->cli_trx, tree->_.lit.val, 0);
+                  if (NULL == iri)
+                    iri = box_iri_id (0);
                   switch(st->st_state)
                     {
                       case SSC_G: ST_SET(st_g, iri); break;
