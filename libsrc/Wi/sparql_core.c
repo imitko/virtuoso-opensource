@@ -6193,11 +6193,12 @@ bif_sparql_explain_json (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   char buf1[1024];
   DO_SET (caddr_t *, tmp, &stat.st_output);
   if (0 == strcmp (tmp[0], "triples")) {
+    s_node_t *iter;
     sprintf (buf1, "\t\"triple_count\": %d,\n", stat.st_triple_count);
     SES_PRINT(res, buf1);  
     sprintf (buf1, "\t\"%s\": [", tmp[0]);
     SES_PRINT (res, buf1);
-    for (s_node_t *iter = tmp[1]; NULL != iter; iter = iter->next) {
+    for (iter = tmp[1]; NULL != iter; iter = iter->next) {
       char estimate[32];
       strcpy (estimate, iter->data);
       iter = iter->next;
@@ -6220,11 +6221,12 @@ bif_sparql_explain_json (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
     SES_PRINT (res, buf1);
   }
   if (0 == strcmp (tmp[0], "projection_vars")) {
+    s_node_t *iter;
     sprintf (buf1, "\t\"projection_var_count\": %d,\n", stat.st_projection_vars);
     SES_PRINT (res, buf1);  
     sprintf (buf1, "\t\"%s\": [", tmp[0]);
     SES_PRINT (res, buf1);
-    for (s_node_t *iter = tmp[1]; NULL != iter; iter = iter->next) {
+    for (iter = tmp[1]; NULL != iter; iter = iter->next) {
       sprintf (buf1, "\"%s\"", iter->data);
       SES_PRINT (res, buf1);
       if (NULL != iter->next)
