@@ -6115,6 +6115,150 @@ bif_sparql_explain (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
   return (caddr_t)res;
 }
 
+caddr_t
+bif_sparql_explain_json (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
+{
+  int ctr, param_ctr = 0;
+  spar_query_env_t sparqre;
+  sparp_t * sparp;
+  caddr_t str = bif_string_arg (qst, args, 0, "sparql_explain_json");
+  /* flag to re-write query or keep as is, usually we rewrite always */
+  int rewrite_all = (0 != ((2 > BOX_ELEMENTS (args)) ? 1 : bif_long_arg (qst, args, 1, "sparql_explain_json")));
+  dk_session_t *res;
+  spar_stat_ctx_t stat;
+  SPARP_SAVED_MP_SIZE_CAP;
+  MP_START ();
+  SPARP_TWEAK_MP_SIZE_CAP(THR_TMP_POOL,&sparqre);
+  memset (&sparqre, 0, sizeof (spar_query_env_t));
+  sparqre.sparqre_param_ctr = &param_ctr;
+  sparqre.sparqre_qi = (query_instance_t *) qst;
+  memset(&stat, 0, sizeof(spar_stat_ctx_t));
+  stat.st_qi = (QI*)qst; /* need when resolving constants */
+  sparp = sparp_query_parse (str, &sparqre, rewrite_all);
+  if (NULL != sparqre.sparqre_catched_error)
+    {
+      if (NULL != sparqre.sparqre_metadata_rwlock)
+        {
+          rwlock_unlock (sparqre.sparqre_metadata_rwlock);
+          sparqre.sparqre_metadata_rwlock = NULL;
+        }
+      SPARP_RESTORE_MP_SIZE_CAP(THR_TMP_POOL);
+      MP_DONE ();
+      sqlr_resignal (sparqre.sparqre_catched_error);
+    }
+  res = strses_allocate ();
+  for (ctr = 0; ctr < sparp->sparp_macro_def_count; ctr++)
+    {
+      SPART *defm = sparp->sparp_macro_defs[ctr];
+      spart_dump (defm, res, 0, "MACRO DEFINITION", -1, NULL);
+    }
+  spart_dump (sparp->sparp_entire_query, res, 0, "QUERY", -1, &stat);
+  /* at this point `stat` should have basic stats collectes and estimates,
+   * the next part TBD is about vertices, tehy called here equalities, have to see about that
+   * */
+#if 1
+  {
+    int eq_ctr, eq_count;
+    SES_PRINT (res, "\nEQUIVS:");
+    eq_count = sparp->sparp_sg->sg_equiv_count;
+    for (eq_ctr = 0; eq_ctr < eq_count; eq_ctr++)
+      {
+        char buf[50];
+        sparp_equiv_t *eq;
+        eq = sparp->sparp_sg->sg_equivs[eq_ctr];
+        if (NULL == eq)
+          {
+#ifdef SPARQL_DEBUG
+            eq = sparp->sparp_sg->sg_removed_equivs[eq_ctr];
+            sprintf (buf, "\n#%d: merged into #%d and destroyed", eq_ctr, (int)(eq->e_dbg_merge_dest));
+            SES_PRINT (res, buf);
+            spart_dump_eq (eq, res);
+#else
+            sprintf (buf, "\n#%d: merged and destroyed", eq_ctr);
+            SES_PRINT (res, buf);
+#endif
+          }
+        else
+          {
+            sprintf (buf, "\n#%d:", eq_ctr);
+            SES_PRINT (res, buf);
+            spart_dump_eq (eq, res);
+          }
+      }
+  }
+#endif
+  
+  /* Query features in JSON format */
+  SES_PRINT (res, "\n\nJSON:\n{\n");
+  char buf1[1024];
+  DO_SET (caddr_t *, tmp, &stat.st_output);
+  if (0 == strcmp (tmp[0], "triples")) {
+    sprintf (buf1, "\t\"triple_count\": %d,\n", stat.st_triple_count);
+    SES_PRINT(res, buf1);  
+    sprintf (buf1, "\t\"%s\": [", tmp[0]);
+    SES_PRINT (res, buf1);
+    for (s_node_t *iter = tmp[1]; NULL != iter; iter = iter->next) {
+      char estimate[32];
+      strcpy (estimate, iter->data);
+      iter = iter->next;
+      sprintf (buf1, "\n\t\t{\n\t\t\t\"triple_id\": %s,", iter->data);
+      SES_PRINT (res, buf1);
+      iter = iter->next;
+      sprintf (buf1, "\n\t\t\t\"triple_str\": \"%s\",", iter->data);
+      SES_PRINT (res, buf1);
+      iter = iter->next;
+      sprintf (buf1, "\n\t\t\t\"variables\": [%s],", iter->data);
+      SES_PRINT (res, buf1);
+      sprintf (buf1, "\n\t\t\t\"cardinality\": %s,", estimate);
+      SES_PRINT (res, buf1);
+      sprintf (buf1, "\n\t\t\t\"selectivity\": 0.0\n\t\t}");
+      SES_PRINT (res, buf1);
+      if (NULL != iter->next)
+	SES_PRINT (res, ",");
+    }
+    sprintf (buf1, "\n\t],\n");
+    SES_PRINT (res, buf1);
+  }
+  if (0 == strcmp (tmp[0], "projection_vars")) {
+    sprintf (buf1, "\t\"projection_var_count\": %d,\n", stat.st_projection_vars);
+    SES_PRINT (res, buf1);  
+    sprintf (buf1, "\t\"%s\": [", tmp[0]);
+    SES_PRINT (res, buf1);
+    for (s_node_t *iter = tmp[1]; NULL != iter; iter = iter->next) {
+      sprintf (buf1, "\"%s\"", iter->data);
+      SES_PRINT (res, buf1);
+      if (NULL != iter->next)
+	SES_PRINT (res, ", ");
+    }
+    sprintf (buf1, "],\n");
+    SES_PRINT (res, buf1);
+  }
+  END_DO_SET ();
+  sprintf (buf1, "\t\"graph_pattern_count\": %d,\n", stat.st_gp_count);
+  SES_PRINT (res, buf1);
+  sprintf (buf1, "\t\"is_distinct\": %s,\n", stat.st_distinct?"true":"false");
+  SES_PRINT (res, buf1);
+  sprintf (buf1, "\t\"is_limit\": %s,\n", stat.st_limit?"true":"false");
+  SES_PRINT (res, buf1);
+  sprintf (buf1, "\t\"is_order\": %s,\n", stat.st_order_by?"true":"false");
+  SES_PRINT (res, buf1);
+  sprintf (buf1, "\t\"is_optional\": %s,\n", stat.st_optional?"true":"false");
+  SES_PRINT (res, buf1);
+  sprintf (buf1, "\t\"is_union\": %s\n", stat.st_union?"true":"false");
+  SES_PRINT (res, buf1);
+  SES_PRINT (res, "}\n");
+  dk_set_free (stat.st_output);
+  
+  if (NULL != sparqre.sparqre_metadata_rwlock)
+    {
+      rwlock_unlock (sparqre.sparqre_metadata_rwlock);
+      sparqre.sparqre_metadata_rwlock = NULL;
+    }
+  SPARP_RESTORE_MP_SIZE_CAP(THR_TMP_POOL);
+  MP_DONE ();
+  return (caddr_t)res;
+}
+
 void sparp_make_sparqld_text (spar_sqlgen_t *ssg);
 
 caddr_t
@@ -6833,6 +6977,7 @@ sparql_init (void)
   bif_define ("sparql_to_sql_text", bif_sparql_to_sql_text);
   bif_define ("sparql_detalize", bif_sparql_detalize);
   bif_define ("sparql_explain", bif_sparql_explain);
+  bif_define ("sparql_explain_json", bif_sparql_explain_json);
   bif_define ("sparql_lex_analyze", bif_sparql_lex_analyze);
   bif_define ("sparql_quad_maps_for_quad", bif_sparql_quad_maps_for_quad);
   bif_define ("sparql_sql_cols_for_quad", bif_sparql_sql_cols_for_quad);

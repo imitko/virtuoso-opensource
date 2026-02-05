@@ -4887,7 +4887,7 @@ spart_dump_opname (ptrlong opname, int is_op, spar_stat_ctx_t *st)
     case SERVICE_L: return "SERVICE gp";
     case SUBJECT_L: return "SUBJECT";
     case true_L: return "true boolean";
-    case UNION_L: return "UNION gp";
+    case UNION_L: ST_INC(st_union); return "UNION gp";
     case VALUES_L: return "VALUES gp";
     case WHERE_L: return "WHERE gp";
 
@@ -5413,13 +5413,20 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
                 spart_dump (tree->_.req_top.formatmode_name, ses, indent+2, "SERIALIZATION FORMAT", 0, st);
               if (NULL != tree->_.req_top.storage_name)
                 spart_dump (tree->_.req_top.storage_name, ses, indent+2, "RDF DATA STORAGE", 0, st);
+	      ST_SET (st_state, SSC_R);
+	      dk_set_push (&st->st_output, NEW_LIST(2));
+	      ((caddr_t *)st->st_output->data)[0] = t_box_string("projection_vars");
+	      ((caddr_t *)st->st_output->data)[1] = NULL;
               if (IS_BOX_POINTER(tree->_.req_top.retvals))
                 spart_dump (tree->_.req_top.retvals, ses, indent+2, "RETVALS", -2, st);
               else
                 spart_dump (tree->_.req_top.retvals, ses, indent+2, "RETVALS", 0, st);
-              ST_SET(st_projecton_vars, BOX_ELEMENTS_0(tree->_.req_top.retvals));
+              ST_SET(st_projection_vars, BOX_ELEMENTS_0(tree->_.req_top.retvals));
               spart_dump (tree->_.req_top.retselid, ses, indent+2, "RETVALS SELECT ID", 0, st);
               spart_dump (tree->_.req_top.sources, ses, indent+2, "SOURCES", -2, st);
+	      dk_set_push (&st->st_output, NEW_LIST(2));
+	      ((caddr_t *)st->st_output->data)[0] = t_box_string("triples");
+	      ((caddr_t *)st->st_output->data)[1] = NULL;
               spart_dump (tree->_.req_top.pattern, ses, indent+2, "PATTERN", -1, st);
               spart_dump (tree->_.req_top.groupings, ses, indent+2, "GROUPINGS", -2, st);
               ST_SET(st_group_by, BOX_ELEMENTS_0(tree->_.req_top.groupings));
@@ -5453,6 +5460,11 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
               spart_dump (tree->_.var.selid, ses, -(indent+2), "SELECT ID", 0, st);
               spart_dump (tree->_.var.tabid, ses, -(indent+2), "TABLE ID", 0, st);
               spart_dump ((void*)(tree->_.var.equiv_idx), ses, -(indent+2), "EQUIV", 0, st);
+	      if (SSC_R == st->st_state)
+		{
+		  snprintf (buf, sizeof (buf), "?%s", tree->_.var.vname);
+		  dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf));
+		}
               break;
             }
           case SPAR_TRIPLE:
@@ -5476,8 +5488,66 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
               spart_dump (tree->_.triple.tr_predicate, ses, indent+2, "PREDICATE", -1, st);
               ST_SET(st_state, SSC_O);
               spart_dump (tree->_.triple.tr_object, ses, indent+2, "OBJECT", -1, st);
+	      char buf1[256] = {0}, buf2[256] = {0};
+	      switch (tree->_.triple.tr_subject->type)
+		{
+		case SPAR_VARIABLE:
+		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_subject->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_subject->_.var.vname);
+		  break;
+		case SPAR_BLANK_NODE_LABEL:
+		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_subject->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_subject->_.var.vname);
+		  break;
+		case SPAR_QNAME:
+		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_subject->_.lit.val);		  
+		  break;
+		}
+	      switch (tree->_.triple.tr_predicate->type)
+		{
+		case SPAR_VARIABLE:
+		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_predicate->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_predicate->_.var.vname);
+		  break;
+		case SPAR_BLANK_NODE_LABEL:
+		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_predicate->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_predicate->_.var.vname);
+		  break;
+		case SPAR_QNAME:
+		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_predicate->_.lit.val);		  
+		  break;
+		}
+	      switch (tree->_.triple.tr_object->type)
+		{
+		case SPAR_VARIABLE:
+		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_object->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_object->_.var.vname);
+		  break;
+		case SPAR_BLANK_NODE_LABEL:
+		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_object->_.var.vname);
+		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_object->_.var.vname);
+		  break;
+		case SPAR_QNAME:
+		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_object->_.lit.val);
+		  break;
+		case SPAR_LIT:
+		  if (IS_STRING_DTP (DV_TYPE_OF (tree->_.triple.tr_object->_.lit.val)))
+		    sprintf (buf1 + strlen(buf1), "\\\"%s\\\" ", tree->_.triple.tr_object->_.lit.val);
+		  else
+		    sprintf (buf1 + strlen(buf1), "%ld ", unbox(tree->_.triple.tr_object->_.lit.val));
+		  break;
+		}
+	      if (buf2[0])
+		buf2[strlen(buf2)-2] = '\0';
+	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf2));
+	      buf1[strlen(buf1)-1] = '\0';
+	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
+	      sprintf (buf1, "%ld", tree->_.triple.src_serial);
+	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
               ST_SET(st_state, 0);
               est = spart_estimate(st);
+	      sprintf (buf1, "%ld", est);
+	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
               spart_dump (est, ses, indent+2, "ESTIMATE", 0, st);
               spart_dump (tree->_.triple.selid, ses, indent+2, "SELECT ID", 0, st);
               spart_dump (tree->_.triple.tabid, ses, indent+2, "TABLE ID", 0, st);

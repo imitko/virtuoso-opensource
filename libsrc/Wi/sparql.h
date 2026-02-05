@@ -847,11 +847,12 @@ extern void sparp_compile_smllist (sparp_t *sparp, caddr_t sml_iri_uname, void /
 extern int sparp_sql_function_name_is_unsafe (const char *buf);
 extern int sparp_bif_function_name_is_unsafe (const char *buf);
 
-/* statistic context state, when collecting tripple data, indicate which position is qname */
+/* statistic context state, when collecting tripple data, indicate which position is qname, while SSC_R is used when parsing retvals */
 #define SSC_S 1
 #define SSC_P 2
 #define SSC_O 4
 #define SSC_G 8
+#define SSC_R 16
 
 /* statistic context */
 typedef struct spar_stat_ctx_s {
@@ -863,7 +864,7 @@ typedef struct spar_stat_ctx_s {
   caddr_t st_g;
   int st_gp_count; /* cumulative count of GPs */
   int st_triple_count; /* the rest should be self-evident */
-  int st_projecton_vars; 
+  int st_projection_vars; 
   int st_distinct;
   int st_group_by;
   int st_order_by;
