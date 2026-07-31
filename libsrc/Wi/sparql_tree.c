@@ -5664,9 +5664,9 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
             {
               snprintf (buf, sizeof (buf), "TRIPLE_TERM:");
               SES_PRINT (ses, buf);
-              spart_dump (tree->_.triple_term.subject, ses, indent+2, "SUBJECT", -1);
-              spart_dump (tree->_.triple_term.predicate, ses, indent+2, "PREDICATE", -1);
-              spart_dump (tree->_.triple_term.object, ses, indent+2, "OBJECT", -1);
+              spart_dump (tree->_.triple_term.subject, ses, indent+2, "SUBJECT", -1, st);
+              spart_dump (tree->_.triple_term.predicate, ses, indent+2, "PREDICATE", -1, st);
+              spart_dump (tree->_.triple_term.object, ses, indent+2, "OBJECT", -1, st);
               break;
             }
           case SPAR_SERVICE_INV:
