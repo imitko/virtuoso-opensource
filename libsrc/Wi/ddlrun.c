@@ -5285,8 +5285,7 @@ qr_recompile (query_t * qr, caddr_t * err_ret)
 	new_qr->qr_proc_owner = owner_user->usr_id;*/
       if (QR_IS_MODULE_PROC (qr))
         {
-          if (new_qr != qr)
-            qr_free (new_qr);
+          /* do not free here it is new module qr, new_qr will be seen in next loop */
 	  new_qr = NULL;
         }
     }
@@ -5312,8 +5311,7 @@ qr_recompile (query_t * qr, caddr_t * err_ret)
 		    }
 		  if (old_mod_qr == qr)
                     {
-                      if (new_qr != qr)
-                        qr_free (new_qr);
+                      /* this is one we are re-compiling, take the qr corresponding to it */
 		      new_qr = new_mod_qr;
                     }
 		}
@@ -6641,8 +6639,8 @@ static const char *charset_define_text =
 "   if (exists (select 1 from DB.DBA.SYS_CHARSETS where CS_NAME = name)) \n"
 "     return; \n"
 "   if (length (charset_string) > 255) signal ('22023', 'Charset definition is not correct', 'SR284'); \n"
-"   parsed_charset := charset__define (name, charset_string, aliases); \n"
-"   log_text(\'charset__define(?, ?, ?)\', name, parsed_charset, aliases); \n"
+"   parsed_charset := __charset_define (name, charset_string, aliases); \n"
+"   log_text(\'__charset_define(?, ?, ?)\', name, parsed_charset, aliases); \n"
 "   insert soft SYS_CHARSETS (CS_NAME, CS_TABLE, CS_ALIASES) values (name, parsed_charset, either (isnull (aliases), NULL, serialize (aliases))); \n"
 "} \n";
 

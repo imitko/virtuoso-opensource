@@ -2018,8 +2018,10 @@ box_position_no_tag (caddr_t * box, caddr_t elt)
 }
 
 
+int sqlo_is_dt_state_func (char * name);
+
 void
-sqlg_mark_not_gen (df_elt_t * dfe)
+sqlg_mark_not_gen (sqlo_t *so, df_elt_t * dfe)
 {
   /* a trans dt has the reverse dir sharing col and possibly col pred dfes with the fwd direction.  These must be marked placed and not gen to get the reverse with right placing */
   if (!IS_BOX_POINTER (dfe))
@@ -2030,7 +2032,7 @@ sqlg_mark_not_gen (df_elt_t * dfe)
       df_elt_t ** dfe_arr = (df_elt_t **) dfe;
       DO_BOX (df_elt_t *, elt, inx, dfe_arr)
 	{
-	  sqlg_mark_not_gen (elt);
+	  sqlg_mark_not_gen (so, elt);
 	}
       END_DO_BOX;
       return;
@@ -2044,15 +2046,25 @@ sqlg_mark_not_gen (df_elt_t * dfe)
 	df_elt_t * sub;
 	if (dfe->_.sub.generated_dfe)
 	  {
-	    sqlg_mark_not_gen (dfe->_.sub.generated_dfe);
+	    sqlg_mark_not_gen (so, dfe->_.sub.generated_dfe);
 	    return;
 	  }
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.sub.after_join_test);
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.sub.vdb_join_test);
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.sub.invariant_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.sub.after_join_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.sub.vdb_join_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.sub.invariant_test);
 	for (sub = dfe->_.sub.first; sub; sub = sub->dfe_next)
-	  sqlg_mark_not_gen (sub);
+	  sqlg_mark_not_gen (so, sub);
 	break;
+      }
+    case DFE_QEXP:
+      {
+        int inx;
+        DO_BOX (df_elt_t *, elt, inx, dfe->_.qexp.terms)
+          {
+            sqlg_mark_not_gen (so, elt);
+          }
+        END_DO_BOX;
+        break;
       }
     case DFE_TABLE:
       {
@@ -2062,10 +2074,19 @@ sqlg_mark_not_gen (df_elt_t * dfe)
 	DO_SET (df_elt_t *, col, &dfe->_.table.all_preds)
 	  col->dfe_is_placed = DFE_PLACED;
 	END_DO_SET();
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.table.join_test);
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.table.after_join_test);
-	sqlg_mark_not_gen ((df_elt_t*)dfe->_.table.vdb_join_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.table.join_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.table.after_join_test);
+	sqlg_mark_not_gen (so, (df_elt_t*)dfe->_.table.vdb_join_test);
 	break;
+      }
+    case DFE_CALL:
+      {
+        if (!sqlo_is_dt_state_func(dfe->dfe_tree->_.call.name))
+          {
+            df_elt_t * call = sqlo_df (so, dfe->dfe_tree);
+            call->dfe_ssl = NULL;
+          }
+        break;
       }
     }
 }
@@ -2213,7 +2234,7 @@ sqlg_make_trans_dt  (sqlo_t * so, df_elt_t * dt_dfe, ST **target_names, dk_set_t
   if (tl->tl_complement)
     {
       tl->tl_complement->dfe_super = dt_dfe;
-      sqlg_mark_not_gen (tl->tl_complement);
+      sqlg_mark_not_gen (so, tl->tl_complement);
       tn->tn_complement = (trans_node_t*)sqlg_make_trans_dt (so, tl->tl_complement, target_names, pre_code);
       tn->tn_complement->tn_is_primary = 0;
       tn->tn_complement->tn_complement = tn;
@@ -2614,15 +2635,27 @@ sqlg_pred_1 (sqlo_t * so, df_elt_t ** body, dk_set_t * code, int succ, int fail,
     }
   if (BOP_OR == op)
     {
+      /* Collect unkn labels from non-terminal terms so we can emit the unkn propagation path.
+       * When a non-terminal OR term is UNKNOWN, remaining terms must be re-evaluated with
+       * fail->unk (FALSE or UNKNOWN from remaining -> UNKNOWN for the whole OR, not FALSE).
+       * Labels are pushed in forward order; t_set_pop visits them in reverse (LIFO), which
+       * lets us chain each label to its successor via a running next_unkn variable. */
+      dk_set_t unkn_labels = NULL;
+      int body_inx = n_terms - 1;
+      jmp_label_t term_unkn_lbl;
+      jmp_label_t next_unkn = unk;
+
       for (inx = 1; inx < n_terms; inx++)
 	{
 	  if (inx != n_terms - 1)
 	    {
 	      jmp_label_t temp_fail = sqlc_new_label (sc);
+	      jmp_label_t term_unkn = sqlc_new_label (sc);
 	      if (inx == 2)
 		sqlg_cond_start (sc);
-	      sqlg_pred_1 (so, (df_elt_t **) body[inx], code, succ, temp_fail, temp_fail);
+	      sqlg_pred_1 (so, (df_elt_t **) body[inx], code, succ, temp_fail, term_unkn);
 	      cv_label (code, temp_fail);
+	      t_set_push (&unkn_labels, (void *)(ptrlong) term_unkn);
 	    }
 	  else
 	    {
@@ -2631,6 +2664,19 @@ sqlg_pred_1 (sqlo_t * so, df_elt_t ** body, dk_set_t * code, int succ, int fail,
 	      sqlg_pred_1 (so, (df_elt_t **) body[inx], code, succ, fail, unk);
 	    }
 	}
+      /* Unkn path: pop labels in reverse (last non-terminal first); body_inx counts down
+       * in parallel so each popped label maps to the next body[] term to evaluate.
+       * next_unkn accumulates the label placed in the previous (later) iteration.
+       * Kept inside the cond context (sqlg_cond_end called after) so dfe_ssl values
+       * set during the normal path are still live — scalar_exp_generate reuses them
+       * without re-generating code, preventing double dc allocation for DV_ANY columns. */
+      while ((term_unkn_lbl = (jmp_label_t)(ptrlong) t_set_pop (&unkn_labels)))
+        {
+          cv_label (code, term_unkn_lbl);
+          sqlg_pred_1 (so, (df_elt_t **) body[body_inx], code, succ, next_unkn, next_unkn);
+          next_unkn = term_unkn_lbl;
+          body_inx--;
+        }
       if (inx > 1)
 	sqlg_cond_end (sc);
       return;
@@ -4512,7 +4558,7 @@ make_grouping_bitmap_set (ST ** sel_cols, ST * col, ST **etalon, ptrlong * bitma
       DO_BOX (ST *, st, inx, sorted_etalon)
         {
 	  ST * c = st->_.o_spec.col;
-	  if ( (c->_.col_ref.prefix && !col->_.col_ref.prefix) ||
+          if ( !ST_COLUMN(c, COL_DOTTED) || !ST_COLUMN(col, COL_DOTTED) || (c->_.col_ref.prefix && !col->_.col_ref.prefix) ||
 	    (!c->_.col_ref.prefix && col->_.col_ref.prefix) || strcmp (c->_.col_ref.prefix, col->_.col_ref.prefix))
 	    continue;
 	  if (!strcmp (c->_.col_ref.name, col->_.col_ref.name))
@@ -5493,7 +5539,7 @@ sqlg_dt_query_1 (sqlo_t * so, df_elt_t * dt_dfe, query_t * ext_query, ST ** targ
 		    if (dfe->dfe_tree)
 		      {
 			df_elt_t *defd_dfe = sqlo_df_elt (so, dfe->dfe_tree);
-			if (defd_dfe)
+			if (defd_dfe && (DFE_CALL != defd_dfe->dfe_type || !defd_dfe->dfe_tables || dfe_defines(dt_dfe, defd_dfe)))
 			  defd_dfe->dfe_ssl = NULL;
 		      }
 		    dfe->dfe_ssl = NULL;

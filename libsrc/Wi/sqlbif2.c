@@ -259,9 +259,7 @@ bif_sys_lockdown (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
 	{
 	  DO_SET (dk_session_t *, ses, &listeners)
 	    {
-	      without_scheduling_tic ();
 	      session_listen (ses->dks_session);
-	      without_scheduling_tic ();
 	    }
 	  END_DO_SET ();
 	}
@@ -1049,8 +1047,8 @@ bif_rfc1808_parse_uri (caddr_t * qst, caddr_t * err_ret, state_slot_t ** args)
     rfc1808_parse_uri (uri, &split);
   if ((1 < BOX_ELEMENTS(args)) && bif_long_arg (qst, args, 1, "rfc1808_parse_uri"))
     {
-      res = dk_alloc_box (DV_ARRAY_OF_POINTER, sizeof (rdf1808_split_t));
-      memcpy (res, &split, 13 * sizeof (rdf1808_split_t));
+      res = dk_alloc_box (sizeof (rdf1808_split_t), DV_ARRAY_OF_POINTER);
+      memcpy (res, &split, sizeof (rdf1808_split_t));
       return res;
     }
   if (DV_WIDE == uri_dtp)

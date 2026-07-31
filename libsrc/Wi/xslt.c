@@ -1671,7 +1671,8 @@ xslt_for_each_row (xparse_ctx_t * xp, caddr_t * xstree)
   cli->cli_resultset_max_rows = -1;
   cli->cli_resultset_comp_ptr = (caddr_t *) &proc_comp;
   cli->cli_resultset_data_ptr = &proc_resultset;
-  query_shc = shcompo_get_or_compile (&shcompo_vtable__qr, list (3, query_final_text, qi->qi_u_id, qi->qi_g_id), 0, qi, NULL, &err);
+  query_shc = shcompo_get_or_compile (&shcompo_vtable__qr, query_final_text,  list (3, box_md5(query_final_text), qi->qi_u_id, qi->qi_g_id), 0, qi, NULL, &err);
+  dk_free_tree(query_final_text);
   if (NULL == err)
     {
       shcompo_recompile_if_needed (&query_shc);
@@ -3395,7 +3396,7 @@ box_find_mt_unsafe_subtree (caddr_t box)
     {
     case DV_STRING: case DV_LONG_INT: case DV_SINGLE_FLOAT: case DV_DOUBLE_FLOAT:
     case DV_DB_NULL: case DV_UNAME: case DV_DATETIME: case DV_NUMERIC:
-    case DV_IRI_ID: case DV_ASYNC_QUEUE: case DV_WIDE:
+    case DV_IRI_ID: case DV_ASYNC_QUEUE: case DV_WIDE: case DV_COMPOSITE:
     case DV_CLRG:
       return NULL;
     case DV_DICT_ITERATOR:

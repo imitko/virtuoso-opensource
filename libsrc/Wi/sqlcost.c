@@ -91,6 +91,7 @@ lin_int (lin_int_t * li, float x)
 	if (x <= li->li_x[pt + 1])
 	  break;
     }
+  pt = MIN((n - 2), pt);
   k =  (li->li_y[pt + 1] - li->li_y[pt]) / (li->li_x[pt + 1] - li->li_x[pt]);
   return li->li_y[pt] + k * (x - li->li_x[pt]);
 }
@@ -2099,6 +2100,23 @@ rdf_obj_of_sqlval (caddr_t val, caddr_t * data_ret)
   if (IS_NUM_DTP (dtp))
     {
       *data_ret = box_copy (val);
+      return 1;
+    }
+  if (IS_IRI_DTP (dtp))
+    {
+      *data_ret = box_copy (val);
+      return 1;
+    }
+  if ((DV_UNAME == dtp) || ((DV_STRING == dtp) && (BF_IRI & box_flags (val))))
+    {
+      caddr_t iri = key_name_to_iri_id (NULL, val, 0);
+      if ((NULL == iri) || (DV_DB_NULL == DV_TYPE_OF (iri)))
+        {
+          if (NULL != iri)
+            dk_free_box (iri);
+          return 0;
+        }
+      *data_ret = iri;
       return 1;
     }
   if (DV_STRING == dtp)
@@ -4267,7 +4285,7 @@ dfe_table_cost_ic_1 (df_elt_t * dfe, index_choice_t * ic, int inx_only)
 	  df_elt_t ** in_list = sqlo_in_list (pred, NULL, NULL);
 	  if (DFE_TEXT_PRED == pred->dfe_type)
 	    continue;
-	  left_col = in_list ? in_list[0]->_.col.col : DFE_COLUMN == pred->_.bin.left->dfe_type ? pred->_.bin.left->_.col.col : NULL;
+	  left_col = in_list ? in_list[0]->_.col.col : !DFE_SHORTCUT(pred->_.bin.left) && DFE_COLUMN == pred->_.bin.left->dfe_type ? pred->_.bin.left->_.col.col : NULL;
 	  if (DFE_BOP_PRED == pred->dfe_type &&
 	      !dk_set_member (key->key_parts, (void*) left_col) &&
 	      !dk_set_member (ic->ic_inx_sample_cols, (void*) left_col))

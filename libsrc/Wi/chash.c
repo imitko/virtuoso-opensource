@@ -506,10 +506,12 @@ gb_values (chash_t * cha, uint64 * hash_no, caddr_t * inst, state_slot_t * ssl, 
   int64 *temp = NULL;
   int sets[ARTM_VEC_LEN];
   int64 *arr = NULL;
-  data_col_t *dc = QST_BOX (data_col_t *, inst, ssl->ssl_index);
+  data_col_t *dc = ssl->ssl_index ? QST_BOX (data_col_t*, inst, ssl->ssl_index) : NULL;
   int elt_sz, inx, ninx;
   dtp_t chdtp = cha->cha_sqt[nth].sqt_dtp;
   char is_fill = HA_FILL == cha->cha_ha->ha_op;
+  if (0 == ssl->ssl_index)
+    sqlr_new_error ("42000", "VEC26", "Bad expression, constant in hash fill");
   if (!dc)
     sqlr_new_error ("42000", "VEC..", "hash fill outer not supported");
   if (clear_nulls)
@@ -718,7 +720,7 @@ cha_any (chash_t * cha, db_buf_t dv)
 db_buf_t
 cha_dt (chash_t * cha, db_buf_t dt)
 {
-  dtp_t hd[2];
+  dtp_t hd[DT_LENGTH]; /* should have dt_cmp len + 2, cha_any makes copy */
   db_buf_t place;
   hd[0] = DV_SHORT_STRING_SERIAL;
   hd[1] = DT_LENGTH - 2;
@@ -2205,10 +2207,12 @@ setp_chash_distinct_run (setp_node_t * setp, caddr_t * inst, index_tree_t * it)
 	  ent = array_##n[pos1_##n]; \
 	  if (!ent) \
 	    { \
+	      if (!is_intersect) { \
 	        cha->cha_distinct_count++;				\
 		cha_add_gb (setp, inst, key_vecs, cha_p_##n, h_##n, pos1_##n, inx + n - 1, first_set, (dtp_t*)nulls); \
                 cha->cha_error |= cha_p_##n->cha_error; \
-		dis_result (n); \
+	      } \
+	      dis_result (n); \
 	      goto done_##n##f; \
 	    } \
 	  if (h_##n == *ent && cmp (cha, ent, key_vecs, inx + n - 1, (dtp_t*)nulls)) \
@@ -2218,9 +2222,11 @@ setp_chash_distinct_run (setp_node_t * setp, caddr_t * inst, index_tree_t * it)
 	  ent = array_##n[pos2_##n]; \
 	  if (!ent) \
 	    { \
-	      cha->cha_distinct_count++;				\
-	      cha_add_gb (setp, inst, key_vecs, cha_p_##n, h_##n, pos2_##n, inx + n - 1, first_set, (dtp_t*)nulls); \
-              cha->cha_error |= cha_p_##n->cha_error; \
+	      if (!is_intersect) { \
+	        cha->cha_distinct_count++;				\
+	        cha_add_gb (setp, inst, key_vecs, cha_p_##n, h_##n, pos2_##n, inx + n - 1, first_set, (dtp_t*)nulls); \
+                cha->cha_error |= cha_p_##n->cha_error; \
+	      } \
 	      dis_result (n); \
 	      goto done_##n##f; \
 	    } \
@@ -2236,9 +2242,11 @@ setp_chash_distinct_run (setp_node_t * setp, caddr_t * inst, index_tree_t * it)
 		  dis_dup (n); goto done_##n##f;	\
 		} \
 	    } \
-	  cha->cha_distinct_count++;					\
-	  cha_add_gb (setp, inst, key_vecs, cha_p_##n, h_##n, -1, inx + n - 1, first_set, (dtp_t*)nulls); \
-          cha->cha_error |= cha_p_##n->cha_error; \
+	  if (!is_intersect) { \
+	    cha->cha_distinct_count++;					\
+	    cha_add_gb (setp, inst, key_vecs, cha_p_##n, h_##n, -1, inx + n - 1, first_set, (dtp_t*)nulls); \
+            cha->cha_error |= cha_p_##n->cha_error; \
+	  } \
 	  dis_result (n); \
 	done_##n##f: ;
 

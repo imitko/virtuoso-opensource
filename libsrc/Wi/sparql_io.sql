@@ -915,11 +915,693 @@ probe_done:;
 }
 ;
 
+-----
+-- Pluggable SERVICE handler framework (SYS_SPARQL_SINV_HANDLER)
+
+create table DB.DBA.SYS_SPARQL_SINV_HANDLER (
+  SSH_ID integer identity,
+  SSH_PATTERN varchar not null,
+  SSH_MATCH_KIND varchar not null,
+  SSH_PRIORITY integer not null,
+  SSH_CALLBACK varchar not null,
+  SSH_ENABLED integer not null,
+  SSH_TIMEOUT_MS integer,
+  SSH_MAX_ROWS integer,
+  SSH_OPTIONS long varchar,
+  SSH_COMMENT varchar,
+  primary key (SSH_ID)
+)
+;
+
+create index SYS_SPARQL_SINV_HANDLER_LOOKUP on DB.DBA.SYS_SPARQL_SINV_HANDLER (SSH_ENABLED, SSH_PRIORITY)
+;
+
+-- Resolve a handler for a given SERVICE endpoint IRI.
+-- Returns a vector (SSH_ID, SSH_CALLBACK, SSH_TIMEOUT_MS, SSH_MAX_ROWS, SSH_OPTIONS) or null.
+create procedure DB.DBA.SPARQL_SINV_RESOLVE_HANDLER (in _ws_endpoint varchar)
+{
+  for select SSH_ID, SSH_PATTERN, SSH_MATCH_KIND, SSH_PRIORITY, SSH_CALLBACK,
+             SSH_TIMEOUT_MS, SSH_MAX_ROWS, SSH_OPTIONS
+      from DB.DBA.SYS_SPARQL_SINV_HANDLER
+      where SSH_ENABLED = 1
+      order by SSH_PRIORITY, SSH_ID do
+    {
+      declare _matched integer;
+      _matched := 0;
+      if (SSH_MATCH_KIND = 'EXACT')
+        {
+          if (_ws_endpoint = SSH_PATTERN)
+            _matched := 1;
+        }
+      else if (SSH_MATCH_KIND = 'LIKE')
+        {
+          if (_ws_endpoint like SSH_PATTERN)
+            _matched := 1;
+        }
+      else if (SSH_MATCH_KIND = 'REGEXP')
+        {
+          if (regexp_match (SSH_PATTERN, _ws_endpoint) is not null)
+            _matched := 1;
+        }
+      if (_matched)
+        return vector (SSH_ID, SSH_CALLBACK, SSH_TIMEOUT_MS, SSH_MAX_ROWS, SSH_OPTIONS);
+    }
+  return null;
+}
+;
+
+-- Safe callback invocation wrapper.
+-- Validates that callback is in DB.DBA schema and that the procedure exists,
+-- then invokes it with the standard SERVICE handler contract.
+create procedure DB.DBA.SPARQL_SINV_CALL_HANDLER (
+  in _handler_info any,
+  in _ws_endpoint varchar,
+  in _ws_params any,
+  in _qtext_template varchar,
+  in _qtext_posmap nvarchar,
+  in _param_row any,
+  in _expected_vars any)
+{
+  declare _callback_name varchar;
+  declare _handler_opts any;
+  _callback_name := cast (_handler_info[1] as varchar);
+  _handler_opts := _handler_info[4];
+  -- Ensure expected_vars is a proper vector (may arrive serialized via procedure view)
+  if (not isvector (_expected_vars) and isstring (_expected_vars))
+    _expected_vars := deserialize (_expected_vars);
+  if ("LEFT" (_callback_name, 7) <> 'DB.DBA.')
+    signal ('RDFZZ', sprintf ('SERVICE handler callback "%.200s" is not in DB.DBA schema', _callback_name));
+  if (__proc_exists (_callback_name) is null)
+    signal ('RDFZZ', sprintf ('SERVICE handler callback procedure "%.200s" not found', _callback_name));
+  return call (_callback_name) (_ws_endpoint, _ws_params, _qtext_template, _qtext_posmap, _param_row, _expected_vars, _handler_opts);
+}
+;
+
+-- Helper: extract string value from a SPARQL lexer raw_text token.
+-- Handles "...", '...', """...""", '''...''' quote styles and common escapes.
+create procedure DB.DBA.SPARQL_SINV_UNQUOTE_STRING (in _raw varchar)
+{
+  declare _len, _start, _end integer;
+  _len := length (_raw);
+  if (_len < 2)
+    return _raw;
+  -- Detect triple-quote delimiters
+  if (_len >= 6 and (subseq (_raw, 0, 3) = '"""' or subseq (_raw, 0, 3) = ''''''''))
+    {
+      _start := 3;
+      _end := _len - 3;
+    }
+  else if (aref (_raw, 0) = 34 or aref (_raw, 0) = 39) -- '"' or ''''
+    {
+      _start := 1;
+      _end := _len - 1;
+    }
+  else
+    return _raw;
+  if (_end <= _start)
+    return '';
+  -- Unescape common SPARQL string escapes
+  {
+    declare _content varchar;
+    declare _out_ses any;
+    declare _rpos, _rlen, _ch, _nch integer;
+    _content := subseq (_raw, _start, _end);
+    _rlen := length (_content);
+    _rpos := 0;
+    _out_ses := string_output ();
+    while (_rpos < _rlen)
+      {
+        _ch := aref (_content, _rpos);
+        if (_ch = 92 and _rpos + 1 < _rlen) -- backslash
+          {
+            _nch := aref (_content, _rpos + 1);
+            if (_nch = 110)      -- \n
+              http ('\n', _out_ses);
+            else if (_nch = 116) -- \t
+              http ('\t', _out_ses);
+            else if (_nch = 114) -- \r
+              http ('\r', _out_ses);
+            else
+              http (chr (_nch), _out_ses);
+            _rpos := _rpos + 2;
+          }
+        else
+          {
+            http (chr (_ch), _out_ses);
+            _rpos := _rpos + 1;
+          }
+      }
+    return string_output_string (_out_ses);
+  }
+}
+;
+
+-- Helper: extract namespace and local name from an IRI using iri_split BIF.
+-- Returns the local name, or sets _ns_out if provided.
+-- For <http://www.mediawiki.org/ontology#API/search> returns 'search'.
+create procedure DB.DBA.SPARQL_SINV_SPLIT_IRI (in _iri varchar, out _ns_out varchar)
+{
+  declare _local varchar;
+  _ns_out := iri_split (_iri, _local);
+  return _local;
+}
+;
+
+-- Parse structured handler options from SSH_OPTIONS column.
+-- Supports:
+--   (a) Legacy integer format: cast directly to timeout_ms (backward compat).
+--   (b) Vector key-value pairs: vector ('timeout_ms', 10000, 'max_rows', 5000).
+--   (c) NULL: returns default options.
+-- Returns a vector ('timeout_ms', <int>, 'max_rows', <int>).
+create procedure DB.DBA.SPARQL_SINV_PARSE_HANDLER_OPTS (
+  in _handler_opts any,
+  in _default_timeout integer := 10000,
+  in _default_max_rows integer := 10000)
+{
+  declare _timeout_ms, _max_rows integer;
+  _timeout_ms := _default_timeout;
+  _max_rows := _default_max_rows;
+  if (_handler_opts is null)
+    return vector ('timeout_ms', _timeout_ms, 'max_rows', _max_rows);
+  -- Legacy integer format: interpret as timeout_ms
+  if (isinteger (_handler_opts))
+    {
+      _timeout_ms := _handler_opts;
+      return vector ('timeout_ms', _timeout_ms, 'max_rows', _max_rows);
+    }
+  if (isstring (_handler_opts) and length (_handler_opts) > 0)
+    {
+      declare _ival integer;
+      _ival := atoi (_handler_opts);
+      if (_ival > 0)
+        {
+          _timeout_ms := _ival;
+          return vector ('timeout_ms', _timeout_ms, 'max_rows', _max_rows);
+        }
+    }
+  -- Vector key-value format
+  if (isvector (_handler_opts))
+    {
+      declare _octr integer;
+      for (_octr := 0; _octr < length (_handler_opts) - 1; _octr := _octr + 2)
+        {
+          declare _key varchar;
+          _key := cast (_handler_opts[_octr] as varchar);
+          if (_key = 'timeout_ms')
+            _timeout_ms := cast (_handler_opts[_octr + 1] as integer);
+          else if (_key = 'max_rows')
+            _max_rows := cast (_handler_opts[_octr + 1] as integer);
+          else
+            signal ('RDFZZ', sprintf ('SPARQL_SINV_PARSE_HANDLER_OPTS: unknown option "%.100s"', _key));
+        }
+    }
+  return vector ('timeout_ms', _timeout_ms, 'max_rows', _max_rows);
+}
+;
+
+-- Lexer-based parser for SERVICE body template text.
+-- Uses sparql_lex_analyze to tokenize the SERVICE body and extracts triples
+-- using a state machine, replacing fragile manual string scanning.
+--
+-- Uses text-based token checks (not numeric token IDs) for stability across
+-- lexer versions:
+--   IRIs: raw_text like '<%>'
+--   Variables: raw_text like '?%' or '$%'
+--   Strings: raw_text like '"...' or '''...'
+--   Punctuation: raw_text = '{', '}', '.', ';'
+--
+-- Lexem format: vector(lineno, depth, raw_text, lex_value)
+create procedure DB.DBA.SPARQL_SINV_PARSE_QUERY_LEXER (
+  in _qtext varchar,
+  out _api_action varchar,
+  out _api_host varchar,
+  out _api_params any,
+  out _output_maps any,
+  out _output_item_maps any)
+{
+  declare _lexems any;
+  declare _lex_count, _ctr integer;
+  declare _subj_text, _pred_text, _obj_text varchar;
+  declare _triple_pos integer;
+  declare _brace_depth integer;
+  declare _mwapi_ns, _wb_ns, _bd_ns varchar;
+
+  _api_action := null;
+  _api_host := 'www.wikidata.org';
+  _api_params := vector ();
+  _output_maps := vector ();
+  _output_item_maps := vector ();
+
+  _mwapi_ns := 'http://www.mediawiki.org/ontology#API/';
+  _wb_ns := 'http://wikiba.se/ontology#';
+  _bd_ns := 'http://www.bigdata.com/rdf#';
+
+  _lexems := sparql_lex_analyze (_qtext);
+  _lex_count := length (_lexems);
+  _triple_pos := 0;
+  _brace_depth := 0;
+  _subj_text := null;
+  _pred_text := null;
+
+  for (_ctr := 0; _ctr < _lex_count; _ctr := _ctr + 1)
+    {
+      declare _lex any;
+      declare _raw_text varchar;
+
+      _lex := _lexems[_ctr];
+      -- Error lexem has only 3 elements (lineno, depth, error_message)
+      if (length (_lex) < 4)
+        goto next_token;
+
+      _raw_text := _lex[2];
+
+      -- Track brace depth; only parse triples inside { }
+      -- The SERVICE template is: SELECT ?vars WHERE { <triples> } LIMIT N
+      if (_raw_text = '{')
+        {
+          _brace_depth := _brace_depth + 1;
+          _triple_pos := 0;
+          goto next_token;
+        }
+      if (_raw_text = '}')
+        {
+          _brace_depth := _brace_depth - 1;
+          _triple_pos := 0;
+          goto next_token;
+        }
+      -- Skip everything outside braces (SELECT clause, LIMIT, etc.)
+      if (_brace_depth < 1)
+        goto next_token;
+
+      -- Handle structural separators within triple patterns
+      if (_raw_text = '.')  -- end of triple statement
+        {
+          _triple_pos := 0;
+          goto next_token;
+        }
+      if (_raw_text = ';')  -- same subject, new predicate-object
+        {
+          _triple_pos := 1;
+          goto next_token;
+        }
+      -- Skip unrecognized tokens (keywords, markers, etc.)
+      -- Only process: IRIs (<...>), variables (?../$..), string literals ("../'.')
+      if (not (_raw_text like '<%>' or _raw_text like '?%' or _raw_text like '$%'
+              or _raw_text like '"%' or _raw_text like '''%'))
+        goto next_token;
+
+      -- State machine: collect subject, predicate, object
+      if (_triple_pos = 0)
+        {
+          _subj_text := _raw_text;
+          _triple_pos := 1;
+        }
+      else if (_triple_pos = 1)
+        {
+          _pred_text := _raw_text;
+          _triple_pos := 2;
+        }
+      else if (_triple_pos = 2)
+        {
+          _obj_text := _raw_text;
+          _triple_pos := 0;
+
+          -- Process the complete triple
+          {
+            declare _subj_iri, _pred_iri, _obj_iri varchar;
+            _subj_iri := null;
+            _pred_iri := null;
+            _obj_iri := null;
+
+            -- Strip angle brackets from IRI tokens (<...>)
+            if (_subj_text like '<%>')
+              _subj_iri := subseq (_subj_text, 1, length (_subj_text) - 1);
+            if (_pred_text like '<%>')
+              _pred_iri := subseq (_pred_text, 1, length (_pred_text) - 1);
+            if (_obj_text like '<%>')
+              _obj_iri := subseq (_obj_text, 1, length (_obj_text) - 1);
+
+            -- Pattern 1: bd:serviceParam as subject (input parameters)
+            if (_subj_iri = _bd_ns || 'serviceParam')
+              {
+                if (_pred_iri = _wb_ns || 'api')
+                  {
+                    -- wikibase:api "ActionName"
+                    if (_obj_text like '"%' or _obj_text like '''%') -- string literal
+                      _api_action := DB.DBA.SPARQL_SINV_UNQUOTE_STRING (_obj_text);
+                  }
+                else if (_pred_iri = _wb_ns || 'endpoint')
+                  {
+                    -- wikibase:endpoint "hostname"
+                    if (_obj_text like '"%' or _obj_text like '''%')
+                      _api_host := DB.DBA.SPARQL_SINV_UNQUOTE_STRING (_obj_text);
+                  }
+                else if (_pred_iri is not null and _pred_iri like _mwapi_ns || '%')
+                  {
+                    -- mwapi:paramName "value"
+                    declare _param_local varchar;
+                    _param_local := DB.DBA.SPARQL_SINV_SPLIT_IRI (_pred_iri, _param_local);
+                    if (_param_local is not null and length (_param_local) > 0)
+                      {
+                        if (_obj_text like '"%' or _obj_text like '''%') -- string literal
+                          _api_params := vector_concat (_api_params, vector (_param_local, DB.DBA.SPARQL_SINV_UNQUOTE_STRING (_obj_text)));
+                        else if (_obj_text like '?%' or _obj_text like '$%') -- variable (already substituted)
+                          {
+                            -- Variable was already substituted by SPARQL_SINV_IMP posmap;
+                            -- if it reaches here unsubstituted, skip it (no literal value)
+                            ;
+                          }
+                      }
+                  }
+              }
+            -- Pattern 2: ?var wikibase:apiOutput mwapi:field
+            else if (_pred_iri = _wb_ns || 'apiOutput' and (_subj_text like '?%' or _subj_text like '$%') and _obj_iri is not null)
+              {
+                if (_obj_iri like _mwapi_ns || '%')
+                  {
+                    declare _var_name, _field_local varchar;
+                    _var_name := subseq (_subj_text, 1); -- strip '?'
+                    _field_local := DB.DBA.SPARQL_SINV_SPLIT_IRI (_obj_iri, _field_local);
+                    if (_var_name is not null and _field_local is not null)
+                      _output_maps := vector_concat (_output_maps, vector (_var_name, _field_local));
+                  }
+              }
+            -- Pattern 3: ?var wikibase:apiOutputItem mwapi:field
+            else if (_pred_iri = _wb_ns || 'apiOutputItem' and (_subj_text like '?%' or _subj_text like '$%') and _obj_iri is not null)
+              {
+                if (_obj_iri like _mwapi_ns || '%')
+                  {
+                    declare _var_name, _field_local varchar;
+                    _var_name := subseq (_subj_text, 1); -- strip '?'
+                    _field_local := DB.DBA.SPARQL_SINV_SPLIT_IRI (_obj_iri, _field_local);
+                    if (_var_name is not null and _field_local is not null)
+                      _output_item_maps := vector_concat (_output_item_maps, vector (_var_name, _field_local));
+                  }
+              }
+          }
+        }
+    next_token: ;
+    }
+}
+;
+
+-----
+-- wikibase:mwapi callback implementation (lexer-based parsing)
+
+create procedure DB.DBA.SPARQL_SINV_CB_WIKIBASE_MWAPI (
+  in _ws_endpoint varchar,
+  in _ws_params any,
+  in _qtext varchar,
+  in _qtext_posmap nvarchar,
+  in _param_row any,
+  in _expected_vars any,
+  in _handler_opts any)
+{
+  declare _api_action, _api_host varchar;
+  declare _api_params any;
+  declare _output_maps any;
+  declare _output_item_maps any;
+  declare _url varchar;
+  declare _opts any;
+
+  -- Ensure expected_vars is a proper vector (may arrive serialized via procedure view)
+  if (not isvector (_expected_vars) and isstring (_expected_vars))
+    _expected_vars := deserialize (_expected_vars);
+
+  -- Parse structured handler options (backward compatible with legacy integer format)
+  _opts := DB.DBA.SPARQL_SINV_PARSE_HANDLER_OPTS (_handler_opts);
+
+  -- Parse SERVICE body using lexer-based tokenization
+  DB.DBA.SPARQL_SINV_PARSE_QUERY_LEXER (_qtext, _api_action, _api_host, _api_params, _output_maps, _output_item_maps);
+
+  if (_api_action is null)
+    signal ('RDFZZ', 'wikibase:mwapi handler: wikibase:api not specified in SERVICE body');
+
+  -- Build MediaWiki API URL
+  {
+    declare _api_url_ses any;
+    _api_url_ses := string_output ();
+    http (sprintf ('https://%s/w/api.php?format=json', _api_host), _api_url_ses);
+    if (lower (_api_action) = 'search')
+      {
+        http ('&action=query&list=search', _api_url_ses);
+        {
+          declare _pctr integer;
+          for (_pctr := 0; _pctr < length (_api_params); _pctr := _pctr + 2)
+            {
+              http (sprintf ('&%U=%U', _api_params[_pctr], _api_params[_pctr + 1]), _api_url_ses);
+            }
+        }
+      }
+    else if (lower (_api_action) = 'entitysearch' or lower (_api_action) = 'wbsearchentities')
+      {
+        http ('&action=wbsearchentities&language=en', _api_url_ses);
+        {
+          declare _pctr integer;
+          for (_pctr := 0; _pctr < length (_api_params); _pctr := _pctr + 2)
+            {
+              if (_api_params[_pctr] = 'search' or _api_params[_pctr] = 'srsearch')
+                http (sprintf ('&search=%U', _api_params[_pctr + 1]), _api_url_ses);
+              else
+                http (sprintf ('&%U=%U', _api_params[_pctr], _api_params[_pctr + 1]), _api_url_ses);
+            }
+        }
+      }
+    else
+      {
+        http (sprintf ('&action=%U', _api_action), _api_url_ses);
+        {
+          declare _pctr integer;
+          for (_pctr := 0; _pctr < length (_api_params); _pctr := _pctr + 2)
+            {
+              http (sprintf ('&%U=%U', _api_params[_pctr], _api_params[_pctr + 1]), _api_url_ses);
+            }
+        }
+      }
+    _url := string_output_string (_api_url_ses);
+  }
+
+  -- Execute HTTP request
+  {
+    declare _resp_body varchar;
+    declare _resp_headers any;
+    declare _timeout_ms integer;
+    _timeout_ms := cast (get_keyword ('timeout_ms', _opts, 10000) as integer);
+    _resp_headers := null;
+    {
+      declare exit handler for sqlstate '*'
+        {
+          signal ('RDFZZ', sprintf ('wikibase:mwapi HTTP request failed for URL %.500s: %s %s', _url, __SQL_STATE, __SQL_MESSAGE));
+        };
+      _resp_body := http_client_ext (url=>_url, headers=>_resp_headers, timeout=>(_timeout_ms / 1000));
+    }
+    if (_resp_headers is null or length (_resp_headers) = 0 or aref (_resp_headers, 0) not like '% 200%')
+      signal ('RDFZZ', sprintf ('wikibase:mwapi HTTP error for URL %.500s', _url));
+
+    -- Parse JSON response and map to result rows
+    {
+      declare _json_tree any;
+      declare _items any;
+      declare _max_rows integer;
+      _max_rows := cast (get_keyword ('max_rows', _opts, 10000) as integer);
+      _json_tree := json_parse (_resp_body);
+      _items := null;
+      if (lower (_api_action) = 'search')
+        {
+          -- Response path: query.search[]
+          declare _query_obj any;
+          _query_obj := get_keyword ('query', _json_tree);
+          if (_query_obj is not null)
+            _items := get_keyword ('search', _query_obj);
+        }
+      else if (lower (_api_action) = 'entitysearch' or lower (_api_action) = 'wbsearchentities')
+        {
+          -- Response path: search[]
+          _items := get_keyword ('search', _json_tree);
+        }
+      else
+        {
+          -- Generic: try query.X[] where X is the first list key, or top-level results
+          _items := get_keyword ('results', _json_tree);
+          if (_items is null)
+            {
+              declare _query_obj any;
+              _query_obj := get_keyword ('query', _json_tree);
+              if (_query_obj is not null and isvector (_query_obj))
+                {
+                  declare _ki integer;
+                  for (_ki := 0; _ki < length (_query_obj); _ki := _ki + 2)
+                    {
+                      if (isvector (_query_obj[_ki + 1]))
+                        {
+                          _items := _query_obj[_ki + 1];
+                          goto got_items;
+                        }
+                    }
+                got_items: ;
+                }
+            }
+        }
+      if (_items is null or not isvector (_items))
+        return vector ();
+
+      -- Map items to expected_vars
+      {
+        declare _result_rows any;
+        declare _row_count, _var_count integer;
+        _result_rows := vector ();
+        _var_count := length (_expected_vars);
+        {
+          declare _ictr integer;
+          for (_ictr := 0; _ictr < length (_items); _ictr := _ictr + 1)
+            {
+              if (_ictr >= _max_rows)
+                goto row_limit_reached;
+              {
+                declare _item any;
+                declare _row any;
+                declare _vctr integer;
+                _item := _items[_ictr];
+                _row := make_array (_var_count, 'any');
+                for (_vctr := 0; _vctr < _var_count; _vctr := _vctr + 1)
+                  {
+                    declare _vname, _mapped_field varchar;
+                    declare _val any;
+                    _vname := _expected_vars[_vctr];
+                    _val := null;
+                    -- Check apiOutput mappings
+                    {
+                      declare _mctr integer;
+                      for (_mctr := 0; _mctr < length (_output_maps); _mctr := _mctr + 2)
+                        {
+                          if (_output_maps[_mctr] = _vname)
+                            {
+                              _mapped_field := _output_maps[_mctr + 1];
+                              _val := get_keyword (_mapped_field, _item);
+                              -- Convert Wikidata entity IDs to IRI_IDs (SPARQL engine applies __id2in)
+                              if (_val is not null and isstring (_val))
+                                {
+                                  declare _sval varchar;
+                                  _sval := cast (_val as varchar);
+                                  if (regexp_match ('^[QPL][0-9]+', _sval) = _sval)
+                                    _val := iri_to_id (sprintf ('http://www.wikidata.org/entity/%s', _sval));
+                                }
+                              goto got_val;
+                            }
+                        }
+                    }
+                    -- Check apiOutputItem mappings (resolve to Wikidata entity IRI)
+                    {
+                      declare _mctr integer;
+                      for (_mctr := 0; _mctr < length (_output_item_maps); _mctr := _mctr + 2)
+                        {
+                          if (_output_item_maps[_mctr] = _vname)
+                            {
+                              _mapped_field := _output_item_maps[_mctr + 1];
+                              _val := get_keyword (_mapped_field, _item);
+                              if (_val is not null)
+                                _val := iri_to_id (sprintf ('http://www.wikidata.org/entity/%s', cast (_val as varchar)));
+                              goto got_val;
+                            }
+                        }
+                    }
+                    -- Positional fallback: SPARQL compiler may rename SERVICE vars (e.g. ?page_title -> ?stubvar11)
+                    -- If no name match found, map by declaration order
+                    if ((_vctr * 2 + 1) < length (_output_maps))
+                      {
+                        _mapped_field := _output_maps[_vctr * 2 + 1];
+                        _val := get_keyword (_mapped_field, _item);
+                        if (_val is not null and isstring (_val))
+                          {
+                            declare _sval2 varchar;
+                            _sval2 := cast (_val as varchar);
+                            if (regexp_match ('^[QPL][0-9]+', _sval2) = _sval2)
+                              _val := iri_to_id (sprintf ('http://www.wikidata.org/entity/%s', _sval2));
+                          }
+                        goto got_val;
+                      }
+                    if ((_vctr * 2 + 1) < length (_output_item_maps))
+                      {
+                        _mapped_field := _output_item_maps[_vctr * 2 + 1];
+                        _val := get_keyword (_mapped_field, _item);
+                        if (_val is not null)
+                          _val := iri_to_id (sprintf ('http://www.wikidata.org/entity/%s', cast (_val as varchar)));
+                        goto got_val;
+                      }
+                    -- Last resort: try variable name directly as JSON field
+                    _val := get_keyword (_vname, _item);
+                  got_val:
+                    -- SPARQL engine applies __id2in() to all procedure view columns.
+                    -- IRI_IDs survive, but plain strings return NULL.  Wrap string
+                    -- literals as DV_UNAME so they pass through __id2in() intact.
+                    if (_val is not null and isstring (_val) and not isiri_id (_val))
+                      _val := __uname (cast (_val as varchar));
+                    aset (_row, _vctr, _val);
+                  }
+                _result_rows := vector_concat (_result_rows, vector (_row));
+              }
+            }
+        row_limit_reached: ;
+        }
+        return _result_rows;
+      }
+    }
+  }
+}
+;
+
+-----
+-- wikibase:label callback (rewrite-first / Track A).
+-- This handler intercepts SERVICE wikibase:label and returns empty results,
+-- relying on the query being rewritten to use standard SPARQL constructs
+-- (OPTIONAL + rdfs:label) before reaching the SERVICE execution path.
+-- It prevents the engine from attempting remote federation to the label service IRI.
+
+create procedure DB.DBA.SPARQL_SINV_CB_WIKIBASE_LABEL (
+  in _ws_endpoint varchar,
+  in _ws_params any,
+  in _qtext varchar,
+  in _qtext_posmap nvarchar,
+  in _param_row any,
+  in _expected_vars any,
+  in _handler_opts any)
+{
+  -- In rewrite-first mode, the label service body should have been rewritten
+  -- to standard SPARQL. If we get here, return empty results rather than
+  -- attempting remote federation to a non-SPARQL endpoint.
+  return vector ();
+}
+;
+
+-----
+-- Register default Wikidata SERVICE handlers
+
+create procedure DB.DBA.SPARQL_SINV_HANDLER_INIT ()
+{
+  if (not exists (select 1 from DB.DBA.SYS_SPARQL_SINV_HANDLER where SSH_PATTERN = 'http://wikiba.se/ontology#mwapi'))
+    insert into DB.DBA.SYS_SPARQL_SINV_HANDLER (SSH_PATTERN, SSH_MATCH_KIND, SSH_PRIORITY, SSH_CALLBACK, SSH_ENABLED, SSH_TIMEOUT_MS, SSH_MAX_ROWS, SSH_COMMENT)
+      values ('http://wikiba.se/ontology#mwapi', 'EXACT', 10, 'DB.DBA.SPARQL_SINV_CB_WIKIBASE_MWAPI', 1, 10000, 10000, 'Wikidata MediaWiki API service handler');
+  if (not exists (select 1 from DB.DBA.SYS_SPARQL_SINV_HANDLER where SSH_PATTERN = 'http://wikiba.se/ontology#label'))
+    insert into DB.DBA.SYS_SPARQL_SINV_HANDLER (SSH_PATTERN, SSH_MATCH_KIND, SSH_PRIORITY, SSH_CALLBACK, SSH_ENABLED, SSH_TIMEOUT_MS, SSH_MAX_ROWS, SSH_COMMENT)
+      values ('http://wikiba.se/ontology#label', 'EXACT', 10, 'DB.DBA.SPARQL_SINV_CB_WIKIBASE_LABEL', 1, 5000, 10000, 'Wikidata label service handler (rewrite-first)');
+}
+;
+
+DB.DBA.SPARQL_SINV_HANDLER_INIT ()
+;
+
+-----
+-- Modified SPARQL_SINV_IMP with pluggable handler dispatch
+
 create procedure DB.DBA.SPARQL_SINV_IMP (in ws_endpoint varchar, in ws_params any, in qtext_template varchar, in qtext_posmap nvarchar, in param_row any, in expected_vars any)
 {
   declare RSET, retarray any;
+  declare handler_info any;
   result_names (RSET);
   -- dbg_obj_princ ('DB.DBA.SPARQL_SINV_IMP (', ws_endpoint, ws_params, qtext_template, qtext_posmap, param_row, expected_vars, ')');
+  -- Ensure expected_vars is a proper vector (may arrive serialized via procedure view)
+  if (not isvector (expected_vars) and isstring (expected_vars))
+    expected_vars := deserialize (expected_vars);
   if (N'' <> qtext_posmap)
     {
       declare qtext_ses any;
@@ -941,6 +1623,28 @@ create procedure DB.DBA.SPARQL_SINV_IMP (in ws_endpoint varchar, in ws_params an
       http (subseq (qtext_template, prev_pos), qtext_ses);
       qtext_template := string_output_string (qtext_ses);
     }
+  -- Handler dispatch: check for registered SERVICE handler
+  handler_info := DB.DBA.SPARQL_SINV_RESOLVE_HANDLER (ws_endpoint);
+  if (handler_info is not null)
+    {
+      {
+        declare exit handler for sqlstate '*'
+          {
+            -- dbg_obj_princ ('SPARQL_SINV_IMP handler error: ', __SQL_STATE, __SQL_MESSAGE);
+            resignal;
+          };
+        retarray := DB.DBA.SPARQL_SINV_CALL_HANDLER (handler_info, ws_endpoint, ws_params, qtext_template, qtext_posmap, param_row, expected_vars);
+      }
+      if (retarray is not null)
+        {
+          foreach (any retrow in retarray) do
+            {
+              result (retrow);
+            }
+        }
+      return;
+    }
+  -- Original federation path (fallback when no handler matched)
   retarray := DB.DBA.SPARQL_REXEC_TO_ARRAY_OF_OBJ (
     ws_endpoint,
     qtext_template,
@@ -959,6 +1663,45 @@ create procedure DB.DBA.SPARQL_SINV_IMP (in ws_endpoint varchar, in ws_params an
 ;
 
 create procedure view DB.DBA.SPARQL_SINV_2 as DB.DBA.SPARQL_SINV_IMP (ws_endpoint, ws_params, qtext_template, qtext_posmap, param_row, expected_vars)(RSET any)
+;
+
+-----
+-- Seed dialect metadata for wikibase SERVICE IRIs to prevent parser-time
+-- LOAD SERVICE DATA attempts for these non-SPARQL endpoints.
+-- 0x7ffe = all SSG_SD flags except SSG_SD_QUAD_MAP (0x0001)
+-- Must be placed AFTER SPARQL_SINV_IMP to not abort bootstrap.
+
+create procedure DB.DBA.SPARQL_SINV_WIKIBASE_DIALECT_INIT ()
+{
+  declare _state, _msg varchar;
+  -- wikibase:mwapi
+  exec ('jso_triples_del (?, ?, null)', _state, _msg,
+    vector ('http://wikiba.se/ontology#mwapi', 'http://www.openlinksw.com/schemas/virtrdf#dialect'));
+  exec ('jso_triple_add (?, ?, ?)', _state, _msg,
+    vector ('http://wikiba.se/ontology#mwapi', 'http://www.openlinksw.com/schemas/virtrdf#dialect', '00007ffe'));
+  exec ('sparql define input:storage ""
+    prefix virtrdf: <http://www.openlinksw.com/schemas/virtrdf#>
+    DELETE FROM virtrdf: { <http://wikiba.se/ontology#mwapi> virtrdf:dialect ?o }
+    WHERE { <http://wikiba.se/ontology#mwapi> virtrdf:dialect ?o }', _state, _msg);
+  exec ('sparql define input:storage ""
+    prefix virtrdf: <http://www.openlinksw.com/schemas/virtrdf#>
+    INSERT IN virtrdf: { <http://wikiba.se/ontology#mwapi> virtrdf:dialect "00007ffe" }', _state, _msg);
+  -- wikibase:label
+  exec ('jso_triples_del (?, ?, null)', _state, _msg,
+    vector ('http://wikiba.se/ontology#label', 'http://www.openlinksw.com/schemas/virtrdf#dialect'));
+  exec ('jso_triple_add (?, ?, ?)', _state, _msg,
+    vector ('http://wikiba.se/ontology#label', 'http://www.openlinksw.com/schemas/virtrdf#dialect', '00007ffe'));
+  exec ('sparql define input:storage ""
+    prefix virtrdf: <http://www.openlinksw.com/schemas/virtrdf#>
+    DELETE FROM virtrdf: { <http://wikiba.se/ontology#label> virtrdf:dialect ?o }
+    WHERE { <http://wikiba.se/ontology#label> virtrdf:dialect ?o }', _state, _msg);
+  exec ('sparql define input:storage ""
+    prefix virtrdf: <http://www.openlinksw.com/schemas/virtrdf#>
+    INSERT IN virtrdf: { <http://wikiba.se/ontology#label> virtrdf:dialect "00007ffe" }', _state, _msg);
+}
+;
+
+DB.DBA.SPARQL_SINV_WIKIBASE_DIALECT_INIT ()
 ;
 
 -----
@@ -1054,6 +1797,233 @@ create procedure DB.DBA.SPARQL_RESULTS_XML_WRITE_RES (inout ses any, in mdta any
 }
 ;
 
+create procedure DB.DBA.SPARQL_RESULTS_XML_WRITE_TT_LEX_TERM (inout ses any, in lex varchar)
+{
+  declare pos integer;
+  if (lex is null)
+    {
+      http ('<literal></literal>', ses);
+      return;
+    }
+  if (left (lex, 20) = 'urn:rdf-star:triple:')
+    {
+      declare tt any;
+      tt := __uname (lex);
+      DB.DBA.SPARQL_RESULTS_XML_WRITE_TERM (ses, tt);
+      return;
+    }
+  if (left (lex, 3) = 'id:')
+    {
+      declare iri varchar;
+      iri := id_to_iri (iri_id_from_num (cast (subseq (lex, 3) as bigint)));
+      if (iri is not null and left (iri, 20) = 'urn:rdf-star:triple:')
+        {
+          declare tt any;
+          tt := __uname (iri);
+          DB.DBA.SPARQL_RESULTS_XML_WRITE_TERM (ses, tt);
+          return;
+        }
+      if (iri like 'nodeID://%' or iri like '_:%')
+        {
+          http ('<bnode>', ses);
+          http_value (iri, 0, ses);
+          http ('</bnode>', ses);
+        }
+      else
+        {
+          http ('<uri>', ses);
+          http_value (charset_recode (iri, 'UTF-8', '_WIDE_'), 0, ses);
+          http ('</uri>', ses);
+        }
+      return;
+    }
+  if (left (lex, 2) = 'i:')
+    {
+      http ('<literal datatype="http://www.w3.org/2001/XMLSchema#integer">', ses);
+      http_value (subseq (lex, 2), 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (left (lex, 2) = 'n:')
+    {
+      http ('<literal datatype="http://www.w3.org/2001/XMLSchema#decimal">', ses);
+      http_value (subseq (lex, 2), 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (left (lex, 2) = 'f:')
+    {
+      http ('<literal datatype="http://www.w3.org/2001/XMLSchema#float">', ses);
+      http_value (subseq (lex, 2), 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (left (lex, 2) = 'd:')
+    {
+      http ('<literal datatype="http://www.w3.org/2001/XMLSchema#double">', ses);
+      http_value (subseq (lex, 2), 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (left (lex, 2) = 'u:')
+    {
+      http ('<literal>', ses);
+      http_value (subseq (lex, 2), 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (left (lex, 1) = 'x')
+    {
+      pos := strstr (lex, ':');
+      if (pos is not null and pos > 0)
+        {
+          http ('<literal>', ses);
+          http_value (subseq (lex, pos + 1), 0, ses);
+          http ('</literal>', ses);
+          return;
+        }
+    }
+  if (lex like 'nodeID://%' or lex like '_:%')
+    {
+      http (sprintf ('<bnode>%s</bnode>', lex), ses);
+      return;
+    }
+  -- Treat scheme-looking strings as URIs only when they are not datatype-tagged literals
+  -- like "https://x"^^xsd:string encoded as "<lex>^^<datatype>".
+  if ((strstr (lex, '^^') is null) and
+      (lex like 'http://%' or lex like 'https://%' or lex like 'urn:%' or
+      lex like 'mailto:%' or lex like 'ftp://%' or lex like 'file://%' or
+      left (lex, 1) = '#'))
+    {
+      http (sprintf ('<uri>%V</uri>', charset_recode (lex, 'UTF-8', '_WIDE_')), ses);
+      return;
+    }
+  http ('<literal>', ses);
+  http_value (lex, 0, ses);
+  http ('</literal>', ses);
+}
+;
+
+create procedure DB.DBA.SPARQL_RESULTS_XML_WRITE_TERM (inout ses any, inout _val any)
+{
+  declare tt_lex varchar;
+  tt_lex := null;
+  if (isiri_id (_val))
+    tt_lex := id_to_iri (_val);
+  else if (__tag of UNAME = __tag (_val) or isstring (_val))
+    tt_lex := cast (_val as varchar);
+
+  if (tt_lex is not null and left (tt_lex, 20) = 'urn:rdf-star:triple:')
+    {
+      declare tt_s_lex, tt_p_lex, tt_o_lex varchar;
+      tt_s_lex := cast (rdf_triple_component_lex_impl (tt_lex, 0) as varchar);
+      tt_p_lex := cast (rdf_triple_component_lex_impl (tt_lex, 1) as varchar);
+      tt_o_lex := cast (rdf_triple_component_lex_impl (tt_lex, 2) as varchar);
+      if ((tt_s_lex is not null) and (tt_p_lex is not null) and (tt_o_lex is not null))
+        {
+          http ('<triple><subject>', ses);
+          DB.DBA.SPARQL_RESULTS_XML_WRITE_TT_LEX_TERM (ses, tt_s_lex);
+          http ('</subject><predicate>', ses);
+          DB.DBA.SPARQL_RESULTS_XML_WRITE_TT_LEX_TERM (ses, tt_p_lex);
+          http ('</predicate><object>', ses);
+          DB.DBA.SPARQL_RESULTS_XML_WRITE_TT_LEX_TERM (ses, tt_o_lex);
+          http ('</object></triple>', ses);
+          return;
+        }
+    }
+
+  if (isiri_id (_val))
+    {
+      if (_val >= min_bnode_iri_id ())
+        http (sprintf ('<bnode>%s</bnode>', id_to_iri (_val)), ses);
+      else
+        {
+          declare res varchar;
+          res := id_to_iri (_val);
+          if (res is null)
+            res := sprintf ('bad://%d', iri_id_num (_val));
+          res := charset_recode (res, 'UTF-8', '_WIDE_');
+          http ('<uri>', ses);
+          http_value (res, 0, ses);
+          http ('</uri>', ses);
+        }
+      return;
+    }
+
+  if ((isstring (_val) and (bit_and (1, __box_flags (_val)))) or (__tag of UNAME = __tag (_val)))
+    {
+      if (_val like 'nodeID://%' or _val like '_:%')
+        http (sprintf ('<bnode>%s</bnode>', _val), ses);
+      else
+        http (sprintf ('<uri>%V</uri>', charset_recode (_val, 'UTF-8', '_WIDE_')), ses);
+      return;
+    }
+
+  declare lang, dt varchar;
+  declare is_xml_lit int;
+  declare sql_val any;
+  if (__tag (_val) = __tag of stream)
+    {
+      http ('<literal>', ses);
+      http_value (_val, 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+  if (__tag (_val) = __tag of XML)
+    {
+      http ('<literal datatype="http://www.w3.org/1999/02/22-rdf-syntax-ns#XMLLiteral">', ses);
+      http_value (_val, 0, ses);
+      http ('</literal>', ses);
+      return;
+    }
+
+  lang := DB.DBA.RDF_LANGUAGE_OF_LONG (_val, null);
+  dt := DB.DBA.RDF_DATATYPE_IRI_OF_LONG (_val, null);
+  if (dt = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#XMLLiteral')
+    is_xml_lit := 1;
+  else
+    is_xml_lit := 0;
+  if (lang is not null)
+    {
+      if (dt is not null)
+        http (sprintf ('<literal xml:lang="%V" datatype="%V">', cast (lang as varchar), cast (dt as varchar)), ses);
+      else
+        http (sprintf ('<literal xml:lang="%V">', cast (lang as varchar)), ses);
+    }
+  else
+    {
+      if (dt is not null)
+        http (sprintf ('<literal datatype="%V">', cast (dt as varchar)), ses);
+      else
+        http ('<literal>', ses);
+    }
+
+  sql_val := __rdf_sqlval_of_obj (_val, 1);
+  if (isinteger (sql_val) and dt = 'http://www.w3.org/2001/XMLSchema#boolean')
+    {
+      if (sql_val = 0)
+        sql_val := 'false';
+      else
+        sql_val := 'true';
+    }
+  if (__tag of rdf_box = __tag (_val) and __tag of datetime = rdf_box_data_tag (_val))
+    {
+      __rdf_long_to_ttl (_val, ses);
+    }
+  else
+    {
+      if (isentity (sql_val))
+        is_xml_lit := 1;
+      if (__tag (sql_val) = __tag of varchar) -- UTF-8 value kept in a DV_STRING box
+        sql_val := charset_recode (sql_val, 'UTF-8', '_WIDE_');
+      if (is_xml_lit) http ('<![CDATA[', ses);
+      http_value (__rdf_strsqlval (sql_val), 0, ses);
+      if (is_xml_lit) http (']]>', ses);
+    }
+  http ('</literal>', ses);
+}
+;
+
 create procedure DB.DBA.SPARQL_RESULTS_XML_WRITE_ROW (inout ses any, in mdta any, inout dta any)
 {
   -- dbg_obj_princ ('DB.DBA.SPARQL_RESULTS_XML_WRITE_ROW (..., ',mdta, dta, ')');
@@ -1067,101 +2037,11 @@ create procedure DB.DBA.SPARQL_RESULTS_XML_WRITE_ROW (inout ses any, in mdta any
       _val := dta[x];
       if (_val is null)
         goto end_of_binding;
-      -- dbg_obj_princ ('_name=', _name, ',val=', _val, __tag(_val), __box_flags (_val));
-      if (isiri_id (_val))
-        {
-          if (_val >= min_bnode_iri_id ())
-            http (sprintf ('\n   <binding name="%s"><bnode>%s</bnode></binding>', _name, id_to_iri (_val)), ses);
-          else
-            {
-              declare res varchar;
-              res := id_to_iri (_val);
---              res := coalesce ((select RU_QNAME from DB.DBA.RDF_URL where RU_IID = _val));
-              if (res is null)
-                res := sprintf ('bad://%d', iri_id_num (_val));
-              http (sprintf ('\n   <binding name="%s"><uri>', _name), ses);
-              res := charset_recode (res, 'UTF-8', '_WIDE_');
-              http_value (res, 0, ses);
-              http ('</uri></binding>', ses);
-            }
-        }
-      else if ((isstring (_val) and (bit_and (1, __box_flags (_val)))) or (__tag of UNAME = __tag (_val)))
-        {
-          if (_val like 'nodeID://%')
-            http (sprintf ('\n   <binding name="%s"><bnode>%s</bnode></binding>', _name, _val), ses);
-          else
-            http (sprintf ('\n   <binding name="%s"><uri>%V</uri></binding>', _name, charset_recode (_val, 'UTF-8', '_WIDE_')), ses);
-        }
-      else
-        {
-	  declare lang, dt varchar;
-	  declare is_xml_lit int;
-	  declare sql_val any;
-	  if (__tag (_val) = __tag of stream)
-	    {
-              http (sprintf ('\n   <binding name="%s"><literal>', _name), ses);
-	      http_value (_val, 0, ses);
-              http ('</literal></binding>', ses);
-              goto end_of_binding;
-	    }
-	  if (__tag (_val) = __tag of XML)
-	    {
-              http (sprintf ('\n   <binding name="%s"><literal datatype="http://www.w3.org/1999/02/22-rdf-syntax-ns#XMLLiteral">', _name), ses);
-	      http_value (_val, 0, ses);
-              http ('</literal></binding>', ses);
-              goto end_of_binding;
-	    }
-	  lang := DB.DBA.RDF_LANGUAGE_OF_LONG (_val, null);
-	  dt := DB.DBA.RDF_DATATYPE_IRI_OF_LONG (_val, null);
-	  if (dt = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#XMLLiteral')
-	    is_xml_lit := 1;
-	  else
-            is_xml_lit := 0;
-	  if (lang is not null)
-	    {
-	      if (dt is not null)
-                http (sprintf ('\n   <binding name="%s"><literal xml:lang="%V" datatype="%V">',
-		    _name, cast (lang as varchar), cast (dt as varchar)), ses);
-	      else
-                http (sprintf ('\n   <binding name="%s"><literal xml:lang="%V">',
-		    _name, cast (lang as varchar)), ses);
-	    }
-	  else
-	    {
-	      if (dt is not null)
-                http (sprintf ('\n   <binding name="%s"><literal datatype="%V">',
-		    _name, cast (dt as varchar)), ses);
-	      else
-                http (sprintf ('\n   <binding name="%s"><literal>',
-		    _name), ses);
-	    }
-	  sql_val := __rdf_sqlval_of_obj (_val, 1);
- 	  if (isinteger (sql_val) and dt = 'http://www.w3.org/2001/XMLSchema#boolean')
- 	    {
- 	       if (sql_val = 0)
-                 sql_val := 'false';
-                else
-                 sql_val := 'true';
- 	    }
-	  if (__tag of rdf_box = __tag (_val) and __tag of datetime = rdf_box_data_tag (_val))
-	    {
-	      __rdf_long_to_ttl (_val, ses);
-	    }
-	  else
-	    {
-	      if (isentity (sql_val))
-		is_xml_lit := 1;
-	      if (__tag (sql_val) = __tag of varchar) -- UTF-8 value kept in a DV_STRING box
-		sql_val := charset_recode (sql_val, 'UTF-8', '_WIDE_');
-	      if (is_xml_lit) http ('<![CDATA[', ses);
-	      http_value (__rdf_strsqlval (sql_val), 0, ses);
-	      if (is_xml_lit) http (']]>', ses);
-	    }
-          http ('</literal></binding>', ses);
-        }
+      http (sprintf ('\n   <binding name="%s">', _name), ses);
+      DB.DBA.SPARQL_RESULTS_XML_WRITE_TERM (ses, _val);
+      http ('</binding>', ses);
 end_of_binding: ;
     }
-
   http ('\n  </result>', ses);
 }
 ;
@@ -1488,9 +2368,29 @@ create procedure DB.DBA.SPARQL_RESULTS_JAVASCRIPT_HTML_WRITE (inout ses any, ino
             }
           else if (__tag of varchar = __tag (val))
             {
-              http ('<pre>', ses);
-              http_escape (val, esc_mode, ses, 1, 1);
-              http ('</pre>', ses);
+              if (val is not null and
+                  (val like 'http://%' or val like 'https://%' or val like 'urn:%' or
+                   val like 'mailto:%' or val like 'ftp://%' or val like 'file://%' or
+                   left (val, 1) = '#') and
+                  not (val like 'nodeID://%' or left (val, 2) = '_:'))
+                {
+                  if (is_js)
+                    http_escape (val, esc_mode, ses, 1, 1);
+                  else
+                    {
+                      http ('<a href="', ses);
+                      http_escape (val, 3, ses, 1, 1);
+                      http ('">', ses);
+                      http_escape (val, esc_mode, ses, 1, 1);
+                      http ('</a>', ses);
+                    }
+                }
+              else
+                {
+                  http ('<pre>', ses);
+                  http_escape (val, esc_mode, ses, 1, 1);
+                  http ('</pre>', ses);
+                }
             }
 	  else if (__tag of stream = __tag (val))
 	    {
@@ -1531,11 +2431,36 @@ end_of_val_print: ;
 }
 ;
 
-create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in colname varchar, inout val any)
+--!AWK OVERWRITE
+create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_TERM (inout ses any, inout val any)
 {
-  http(' "', ses);
-  http_escape (colname, 14, ses, 1, 1);
-  http('": { ', ses);
+  declare tt_lex varchar;
+  tt_lex := null;
+  if (isiri_id (val))
+    tt_lex := id_to_iri (val);
+  else if (__tag of UNAME = __tag (val) or isstring (val))
+    tt_lex := cast (val as varchar);
+
+  if (tt_lex is not null and left (tt_lex, 20) = 'urn:rdf-star:triple:')
+    {
+      declare tt_s_lex, tt_p_lex, tt_o_lex varchar;
+      tt_s_lex := cast (rdf_triple_component_lex_impl (tt_lex, 0) as varchar);
+      tt_p_lex := cast (rdf_triple_component_lex_impl (tt_lex, 1) as varchar);
+      tt_o_lex := cast (rdf_triple_component_lex_impl (tt_lex, 2) as varchar);
+      if ((tt_s_lex is not null) and (tt_p_lex is not null) and (tt_o_lex is not null))
+        {
+          http ('{ "type": "triple", "value": { "subject": ', ses);
+          DB.DBA.SPARQL_RESULTS_JSON_WRITE_TT_LEX_TERM (ses, tt_s_lex);
+          http (', "predicate": ', ses);
+          DB.DBA.SPARQL_RESULTS_JSON_WRITE_TT_LEX_TERM (ses, tt_p_lex);
+          http (', "object": ', ses);
+          DB.DBA.SPARQL_RESULTS_JSON_WRITE_TT_LEX_TERM (ses, tt_o_lex);
+          http (' } }', ses);
+          return;
+        }
+    }
+
+  http ('{ ', ses);
   if (isiri_id (val))
     {
       if (val > min_bnode_iri_id ())
@@ -1572,23 +2497,50 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
         }
       else if (257 <> rdf_box_lang (val))
         {
+          declare pos integer;
           http ('"type": "literal", "xml:lang": "', ses);
           res := coalesce ((select RL_ID from DB.DBA.RDF_LANGUAGE where RL_TWOBYTE = rdf_box_lang (val)));
-          http_escape (res, 14, ses, 1, 1);
-          http ('", "value": "', ses);
+          pos := strstr (res, '--');
+          if (pos is not null and pos > 0)
+            {
+              declare base_lang, dir varchar;
+              base_lang := subseq (res, 0, pos);
+              dir := lower (subseq (res, pos + 2));
+              http_escape (base_lang, 14, ses, 1, 1);
+              http ('", "its:dir": "', ses);
+              http_escape (dir, 14, ses, 1, 1);
+              http ('", "value": "', ses);
+            }
+          else
+            {
+              http_escape (res, 14, ses, 1, 1);
+              http ('", "value": "', ses);
+            }
         }
       else
         http ('"type": "literal", "value": "', ses);
+      if ('http://www.w3.org/2001/XMLSchema#boolean' = res)
+        {
+          if (isinteger (dat))
+            dat := case dat when 0 then 'false' else 'true' end;
+          else if (isstring (dat))
+            {
+              if ('0' = cast (dat as varchar))
+                dat := 'false';
+              else if ('1' = cast (dat as varchar))
+                dat := 'true';
+            }
+        }
       if (__tag of datetime = rdf_box_data_tag (val))
-	__rdf_long_to_ttl (val, ses);
+        __rdf_long_to_ttl (val, ses);
       else
-	http_escape (dat, 14, ses, 1, 1);
+        http_escape (dat, 14, ses, 1, 1);
     }
   else if (__tag of varchar = __tag (val))
     {
       if (bit_and (1, __box_flags (val)))
         {
-          if (val like 'nodeID://%')
+          if (val like 'nodeID://%' or val like '_:%')
             http (sprintf ('"type": "bnode", "value": "%s', val), ses);
           else
             {
@@ -1604,7 +2556,7 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
     }
   else if (__tag of UNAME = __tag (val))
     {
-      if (val like 'nodeID://%')
+      if (val like 'nodeID://%' or val like '_:%')
         http (sprintf ('"type": "bnode", "value": "%s', val), ses);
       else
         {
@@ -1640,6 +2592,117 @@ create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in col
       http_escape (__rdf_strsqlval (val), 14, ses, 1, 1);
     }
   http ('" }', ses);
+}
+;
+
+create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_TT_LEX_TERM (inout ses any, in lex varchar)
+{
+  declare pos integer;
+  if (lex is null)
+    {
+      http ('{ "type": "literal", "value": "" }', ses);
+      return;
+    }
+  if (left (lex, 20) = 'urn:rdf-star:triple:')
+    {
+      declare tt any;
+      tt := __uname (lex);
+      DB.DBA.SPARQL_RESULTS_JSON_WRITE_TERM (ses, tt);
+      return;
+    }
+  if (left (lex, 3) = 'id:')
+    {
+      declare iri varchar;
+      iri := id_to_iri (iri_id_from_num (cast (subseq (lex, 3) as bigint)));
+      if (iri is not null and left (iri, 20) = 'urn:rdf-star:triple:')
+        {
+          declare tt any;
+          tt := __uname (iri);
+          DB.DBA.SPARQL_RESULTS_JSON_WRITE_TERM (ses, tt);
+          return;
+        }
+      if (iri like 'nodeID://%' or iri like '_:%')
+        http ('{ "type": "bnode", "value": "', ses);
+      else
+        http ('{ "type": "uri", "value": "', ses);
+      http_escape (iri, 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 2) = 'i:')
+    {
+      http ('{ "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#integer", "value": "', ses);
+      http_escape (subseq (lex, 2), 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 2) = 'n:')
+    {
+      http ('{ "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#decimal", "value": "', ses);
+      http_escape (subseq (lex, 2), 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 2) = 'f:')
+    {
+      http ('{ "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#float", "value": "', ses);
+      http_escape (subseq (lex, 2), 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 2) = 'd:')
+    {
+      http ('{ "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#double", "value": "', ses);
+      http_escape (subseq (lex, 2), 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 2) = 'u:')
+    {
+      http ('{ "type": "literal", "value": "', ses);
+      http_escape (subseq (lex, 2), 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (left (lex, 1) = 'x')
+    {
+      pos := strstr (lex, ':');
+      if (pos is not null and pos > 0)
+        {
+          http ('{ "type": "literal", "value": "', ses);
+          http_escape (subseq (lex, pos + 1), 14, ses, 1, 1);
+          http ('" }', ses);
+          return;
+        }
+    }
+  if (lex like 'nodeID://%' or lex like '_:%')
+    {
+      http ('{ "type": "bnode", "value": "', ses);
+      http_escape (lex, 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  if (lex like 'http://%' or lex like 'https://%' or lex like 'urn:%' or
+      lex like 'mailto:%' or lex like 'ftp://%' or lex like 'file://%' or
+      left (lex, 1) = '#')
+    {
+      http ('{ "type": "uri", "value": "', ses);
+      http_escape (lex, 14, ses, 1, 1);
+      http ('" }', ses);
+      return;
+    }
+  http ('{ "type": "literal", "value": "', ses);
+  http_escape (lex, 14, ses, 1, 1);
+  http ('" }', ses);
+}
+;
+
+create procedure DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING (inout ses any, in colname varchar, inout val any)
+{
+  http(' "', ses);
+  http_escape (colname, 14, ses, 1, 1);
+  http('": ', ses);
+  DB.DBA.SPARQL_RESULTS_JSON_WRITE_TERM (ses, val);
 }
 ;
 
@@ -1714,6 +2777,124 @@ create procedure DB.DBA.SPARQL_RESULTS_CSV_WRITE (inout ses any, inout metas any
 }
 ;
 
+create procedure DB.DBA.SPARQL_RESULTS_TSV_WRITE_TT_LEX_TERM (inout ses any, in val any)
+{
+  declare s_val, p_val, o_val any;
+  declare tt_iri varchar;
+  declare val_str varchar;
+  if (val is null)
+    return;
+  if (isarray (val) and not isstring (val))
+    {
+      if (3 <> length (val))
+        {
+          http_value (val, 0, ses);
+          return;
+        }
+      s_val := val[0];
+      p_val := val[1];
+      o_val := val[2];
+      goto emit_tt;
+    }
+  tt_iri := null;
+  if (isiri_id (val))
+    tt_iri := id_to_iri (val);
+  else if (__tag of UNAME = __tag (val) or isstring (val) or 183 = __tag (val))
+    tt_iri := cast (val as varchar);
+  else if (__tag of rdf_box = __tag (val))
+    {
+      declare rb_val any;
+      if (__tag of datetime = rdf_box_data_tag (val))
+        {
+          http_nt_object (val, ses, 1);
+          return;
+        }
+      rb_val := rdf_box_data (val);
+      if (isiri_id (rb_val))
+        tt_iri := id_to_iri (rb_val);
+      else if (__tag of UNAME = __tag (rb_val) or isstring (rb_val) or 183 = __tag (rb_val))
+        tt_iri := cast (rb_val as varchar);
+    }
+  if (tt_iri is null or left (tt_iri, 20) <> 'urn:rdf-star:triple:')
+    {
+      if ((isstring (val) or 183 = __tag (val)) and __tag of UNAME <> __tag (val))
+        {
+          val_str := cast (val as varchar);
+          if (val_str like 'http://%' or val_str like 'https://%' or val_str like 'urn:%' or
+              val_str like 'mailto:%' or val_str like 'ftp://%' or val_str like 'file://%' or
+              left (val_str, 1) = '#')
+            {
+              http ('<', ses);
+              http_escape (val_str, 12, ses, 1, 1);
+              http ('>', ses);
+              return;
+            }
+          if (left (val_str, 9) = 'nodeID://')
+            {
+              http ('_:v', ses);
+              http (subseq (val_str, 9), ses);
+              return;
+            }
+          if (left (val_str, 2) = '_:')
+            {
+              http (val_str, ses);
+              return;
+            }
+          http ('"', ses);
+          http_escape (val_str, 11, ses, 1, 1);
+          http ('"', ses);
+          return;
+        }
+      http_nt_object (val, ses, 1);
+      return;
+    }
+  s_val := rdf_triple_subject_impl (tt_iri);
+  p_val := rdf_triple_predicate_impl (tt_iri);
+  o_val := rdf_triple_object_impl (tt_iri);
+  if (s_val is null or p_val is null or o_val is null)
+    {
+      if ((isstring (val) or 183 = __tag (val)) and __tag of UNAME <> __tag (val))
+        {
+          val_str := cast (val as varchar);
+          if (val_str like 'http://%' or val_str like 'https://%' or val_str like 'urn:%' or
+              val_str like 'mailto:%' or val_str like 'ftp://%' or val_str like 'file://%' or
+              left (val_str, 1) = '#')
+            {
+              http ('<', ses);
+              http_escape (val_str, 12, ses, 1, 1);
+              http ('>', ses);
+              return;
+            }
+          if (left (val_str, 9) = 'nodeID://')
+            {
+              http ('_:v', ses);
+              http (subseq (val_str, 9), ses);
+              return;
+            }
+          if (left (val_str, 2) = '_:')
+            {
+              http (val_str, ses);
+              return;
+            }
+          http ('"', ses);
+          http_escape (val_str, 11, ses, 1, 1);
+          http ('"', ses);
+          return;
+        }
+      http_nt_object (val, ses, 1);
+      return;
+    }
+emit_tt:
+  http ('<<(', ses);
+  DB.DBA.SPARQL_RESULTS_TSV_WRITE_TT_LEX_TERM (ses, s_val);
+  http (' ', ses);
+  DB.DBA.SPARQL_RESULTS_TSV_WRITE_TT_LEX_TERM (ses, p_val);
+  http (' ', ses);
+  DB.DBA.SPARQL_RESULTS_TSV_WRITE_TT_LEX_TERM (ses, o_val);
+  http (')>>', ses);
+}
+;
+
 create procedure DB.DBA.SPARQL_RESULTS_TSV_WRITE (inout ses any, inout metas any, inout rset any)
 {
   declare varctr, varcount, resctr, rescount integer;
@@ -1735,7 +2916,7 @@ create procedure DB.DBA.SPARQL_RESULTS_TSV_WRITE (inout ses any, inout metas any
           if (varctr > 0)
             http('\t', ses);
           if (val is not null)
-            http_nt_object(val, ses, 1);
+            DB.DBA.SPARQL_RESULTS_TSV_WRITE_TT_LEX_TERM (ses, val);
         }
       http('\n', ses);
     }
@@ -1806,6 +2987,12 @@ create procedure DB.DBA.SPARQL_RESULTS_HTML_TR_WRITE (inout ses any, inout metas
             }
           else if (__tag of varchar = __tag (val))
             {
+              if (val is not null and
+                  (val like 'http://%' or val like 'https://%' or val like 'urn:%' or
+                   val like 'mailto:%' or val like 'ftp://%' or val like 'file://%' or
+                   left (val, 1) = '#') and
+                  not (val like 'nodeID://%' or left (val, 2) = '_:'))
+                goto iri_print; -- see below
               http ('<pre>', ses);
               http_escape (val, 1, ses, 1, 1);
               http ('</pre>', ses);
@@ -2347,8 +3534,20 @@ body_complete:
 
   DB.DBA.SPARQL_CONTENT_DISPOSITION (ret_format);
 
-  if (bit_and (flags, 1) and strcasestr (http_header_get (), 'Content-Type:') is null)
-    http_header (coalesce (http_header_get (), '') || 'Content-Type: ' || ret_mime || case when strstr (ret_mime, 'json') is null then '; charset=UTF-8' else '' end || '\r\n');
+  if (bit_and (flags, 1))
+    {
+      declare hdr, hdr2 varchar;
+      hdr := coalesce (http_header_get (), '');
+      while (strcasestr (hdr, 'Content-Type:') is not null)
+        {
+          hdr2 := regexp_replace (hdr, '[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Tt][Yy][Pp][Ee]:[^\r\n]*(\r\n|$)', '', 1, null);
+          if (hdr2 = hdr)
+            goto ct_hdr_done;
+          hdr := hdr2;
+        }
+ct_hdr_done:
+      http_header (hdr || 'Content-Type: ' || ret_mime || case when strstr (ret_mime, 'json') is null then '; charset=UTF-8' else '' end || '\r\n');
+    }
   return ret_mime;
 }
 ;
@@ -2360,11 +3559,11 @@ create procedure WS.WS.SPARQL_ENDPOINT_SVC_TTL ()
   http('@prefix sd: <http://www.w3.org/ns/sparql-service-description#> .\n', ses);
   http('@prefix sdf: <http://www.w3.org/ns/formats/> .\n', ses);
   http('<local:/sparql#service> a sd:Service ;\n', ses);
-  http('sd:feature sd:DereferencesURIs, sd:UnionDefaultGraph ;\n', ses);
+  http('sd:feature sd:DereferencesURIs, sd:UnionDefaultGraph, sd:TripleTerms ;\n', ses);
   http('sd:endpoint <local:/sparql> ;\n', ses);
   http('sd:resultFormat sdf:N-Triples, sdf:N3, sdf:RDF_XML, sdf:RDFa, sdf:SPARQL_Results_CSV, ', ses);
   http('sdf:SPARQL_Results_JSON, sdf:SPARQL_Results_XML, sdf:Turtle;\n', ses);
-  http('sd:supportedLanguage sd:SPARQL10Query ;\n', ses);
+  http('sd:supportedLanguage sd:SPARQL10Query, sd:SPARQL11Query, sd:SPARQL11Update, sd:SPARQL12Query, sd:SPARQL12Update ;\n', ses);
   http('sd:url <local:/sparql> .\n', ses);
   return ses;
 }
@@ -4200,6 +5399,7 @@ create procedure DB.DBA.SPARQL_SD_COMPOSE (inout sd any, in host varchar, in com
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:feature', '!sd:RequiresDataset');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:feature', '!sd:EmptyGraphs');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:feature', '!sd:BasicFederatedQuery');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:feature', '!sd:TripleTerms');
 -- Results:
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:resultFormat', 'http://www.w3.org/ns/formats/N3');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:resultFormat', 'http://www.w3.org/ns/formats/N-triples');
@@ -4255,6 +5455,8 @@ create procedure DB.DBA.SPARQL_SD_COMPOSE (inout sd any, in host varchar, in com
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:supportedLanguage', '!sd:SPARQL10Query');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:supportedLanguage', '!sd:SPARQL11Query');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:supportedLanguage', '!sd:SPARQL11Update');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:supportedLanguage', '!sd:SPARQL12Query');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:supportedLanguage', '!sd:SPARQL12Update');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:languageExtension', '!virtrdf:SSG_SD_QUAD_MAP');
   DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:languageExtension', '!virtrdf:SSG_SD_OPTION');
 --  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:languageExtension', '!virtrdf:SSG_SD_BREAKUP');
@@ -4276,6 +5478,17 @@ create procedure DB.DBA.SPARQL_SD_COMPOSE (inout sd any, in host varchar, in com
       DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', '!bif:abs');
       DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionAggregate', '!sql:STDDEV');
     }
+-- SPARQL 1.2 built-in functions (triple terms, language direction, sameValue):
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#triple');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#subject');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#predicate');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#object');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#isTriple');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#sameValue');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#hasLang');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#hasLangDir');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#langDir');
+  DB.DBA.SPARQL_SD_TRIPLE (sd, service_iri, '!sd:extensionFunction', 'http://www.w3.org/ns/sparql#strLangDir');
 }
 ;
 
@@ -4336,9 +5549,10 @@ create procedure DB.DBA.RDF_GRANT_SPARQL_IO ()
     'grant execute on DB.DBA.SPARQL_SD_PROBE to SPARQL_SELECT_FED',
     'grant execute on DB.DBA.SPARQL_SINV_IMP to SPARQL_SELECT_FED',
     'grant select  on DB.DBA.SPARQL_SINV_2   to SPARQL_SELECT_FED',
-    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_HEAD to SPARQL_SELECT',
-    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_RES to SPARQL_SELECT',
-    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_ROW to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_HEAD to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_RES to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_TERM to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_XML_WRITE_ROW to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_RDFXML_WRITE_NS to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_RDFXML_WRITE_HEAD to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_RDFXML_WRITE_RES to SPARQL_SELECT',
@@ -4349,8 +5563,9 @@ create procedure DB.DBA.RDF_GRANT_SPARQL_IO ()
     'grant execute on DB.DBA.SPARQL_RESULTS_NT_WRITE_NS to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_NT_WRITE_HEAD to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_NT_WRITE_RES to SPARQL_SELECT',
-    'grant execute on DB.DBA.SPARQL_RESULTS_JAVASCRIPT_HTML_WRITE to SPARQL_SELECT',
-    'grant execute on DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_JAVASCRIPT_HTML_WRITE to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_JSON_WRITE_TERM to SPARQL_SELECT',
+	    'grant execute on DB.DBA.SPARQL_RESULTS_JSON_WRITE_BINDING to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_JSON_WRITE to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_CSV_WRITE to SPARQL_SELECT',
     'grant execute on DB.DBA.SPARQL_RESULTS_TSV_WRITE to SPARQL_SELECT',
