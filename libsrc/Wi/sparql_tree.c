@@ -5346,6 +5346,54 @@ err:
   return est;
 }
 
+static void
+spart_dump_json_lit_value (const SPART *lit_node, dk_session_t *ses)
+{
+  caddr_t val = lit_node->_.lit.val;
+  dtp_t dtp = DV_TYPE_OF (val);
+  char numbuf[0x100];
+  if (IS_STRING_DTP (dtp)) { SES_PRINT (ses, "\\\""); SES_PRINT (ses, (char *) val); SES_PRINT (ses, "\\\""); }
+  else if (DV_LONG_INT == dtp) { snprintf (numbuf, sizeof (numbuf), BOXINT_FMT, unbox (val)); SES_PRINT (ses, numbuf); }
+  else if (DV_SINGLE_FLOAT == dtp) { snprintf (numbuf, sizeof (numbuf), "%g", (double) unbox_float (val)); SES_PRINT (ses, numbuf); }
+  else if (DV_DOUBLE_FLOAT == dtp) { snprintf (numbuf, sizeof (numbuf), "%g", unbox_double (val)); SES_PRINT (ses, numbuf); }
+  else if (DV_NUMERIC == dtp) { numeric_to_string ((numeric_t) val, numbuf, sizeof (numbuf)); SES_PRINT (ses, numbuf); }
+  else { snprintf (numbuf, sizeof (numbuf), "\\\"<unsupported literal type %s>\\\"", dv_type_title (dtp)); SES_PRINT (ses, numbuf); }
+  if (lit_node->_.lit.datatype) { SES_PRINT (ses, "^^<"); SES_PRINT (ses, (char *) lit_node->_.lit.datatype); SES_PRINT (ses, ">"); }
+  if (lit_node->_.lit.language) { SES_PRINT (ses, "@"); SES_PRINT (ses, (char *) lit_node->_.lit.language); }
+}
+
+static void
+spart_dump_json_triple_term (const SPART *node, dk_session_t *pat_ses, int *pat_first,
+    dk_session_t *var_ses, int *var_first, int is_object)
+{
+  switch (node->type)
+    {
+    case SPAR_VARIABLE:
+      if (!*pat_first) SES_PRINT (pat_ses, " ");
+      SES_PRINT (pat_ses, "?"); SES_PRINT (pat_ses, node->_.var.vname); *pat_first = 0;
+      if (!*var_first) SES_PRINT (var_ses, ", ");
+      SES_PRINT (var_ses, "\"?"); SES_PRINT (var_ses, node->_.var.vname); SES_PRINT (var_ses, "\""); *var_first = 0;
+      break;
+    case SPAR_BLANK_NODE_LABEL:
+      if (!*pat_first) SES_PRINT (pat_ses, " ");
+      SES_PRINT (pat_ses, node->_.var.vname); *pat_first = 0;
+      if (!*var_first) SES_PRINT (var_ses, ", ");
+      SES_PRINT (var_ses, "\""); SES_PRINT (var_ses, node->_.var.vname); SES_PRINT (var_ses, "\""); *var_first = 0;
+      break;
+    case SPAR_QNAME:
+      if (!*pat_first) SES_PRINT (pat_ses, " ");
+      SES_PRINT (pat_ses, "<"); SES_PRINT (pat_ses, node->_.lit.val); SES_PRINT (pat_ses, ">"); *pat_first = 0;
+      break;
+    case SPAR_LIT:
+      if (!is_object) break;
+      if (!*pat_first) SES_PRINT (pat_ses, " ");
+      spart_dump_json_lit_value (node, pat_ses); *pat_first = 0;
+      break;
+    default:
+      break;
+    }
+}
+
 /* traverse the sparql tree and produce a text output, can use `st` context to fill estimates and collect stats,
  * see ST_SET,ST_INC and something called estimate */
 void
@@ -5595,66 +5643,32 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
               spart_dump (tree->_.triple.tr_predicate, ses, indent+2, "PREDICATE", -1, st);
               ST_SET(st_state, SSC_O);
               spart_dump (tree->_.triple.tr_object, ses, indent+2, "OBJECT", -1, st);
-	      char buf1[256] = {0}, buf2[256] = {0};
-	      switch (tree->_.triple.tr_subject->type)
-		{
-		case SPAR_VARIABLE:
-		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_subject->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_subject->_.var.vname);
-		  break;
-		case SPAR_BLANK_NODE_LABEL:
-		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_subject->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_subject->_.var.vname);
-		  break;
-		case SPAR_QNAME:
-		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_subject->_.lit.val);		  
-		  break;
-		}
-	      switch (tree->_.triple.tr_predicate->type)
-		{
-		case SPAR_VARIABLE:
-		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_predicate->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_predicate->_.var.vname);
-		  break;
-		case SPAR_BLANK_NODE_LABEL:
-		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_predicate->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_predicate->_.var.vname);
-		  break;
-		case SPAR_QNAME:
-		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_predicate->_.lit.val);		  
-		  break;
-		}
-	      switch (tree->_.triple.tr_object->type)
-		{
-		case SPAR_VARIABLE:
-		  sprintf (buf1 + strlen(buf1), "?%s ", tree->_.triple.tr_object->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"?%s\", ", tree->_.triple.tr_object->_.var.vname);
-		  break;
-		case SPAR_BLANK_NODE_LABEL:
-		  sprintf (buf1 + strlen(buf1), "%s ", tree->_.triple.tr_object->_.var.vname);
-		  sprintf (buf2 + strlen(buf2), "\"%s\", ", tree->_.triple.tr_object->_.var.vname);
-		  break;
-		case SPAR_QNAME:
-		  sprintf (buf1 + strlen(buf1), "<%s> ", tree->_.triple.tr_object->_.lit.val);
-		  break;
-		case SPAR_LIT:
-		  if (IS_STRING_DTP (DV_TYPE_OF (tree->_.triple.tr_object->_.lit.val)))
-		    sprintf (buf1 + strlen(buf1), "\\\"%s\\\" ", tree->_.triple.tr_object->_.lit.val);
-		  else
-		    sprintf (buf1 + strlen(buf1), "%ld ", unbox(tree->_.triple.tr_object->_.lit.val));
-		  break;
-		}
-	      if (buf2[0])
-		buf2[strlen(buf2)-2] = '\0';
-	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf2));
-	      buf1[strlen(buf1)-1] = '\0';
-	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
-	      sprintf (buf1, "%ld", tree->_.triple.src_serial);
-	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
-              ST_SET(st_state, 0);
-              est = spart_estimate(st);
-	      sprintf (buf1, "%ld", est);
-	      dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string(buf1));
+	      {
+		dk_session_t *pat_ses = strses_allocate ();
+		dk_session_t *var_ses = strses_allocate ();
+		int pat_first = 1, var_first = 1;
+		caddr_t pat_str, var_str;
+		char numbuf[32];
+
+		spart_dump_json_triple_term (tree->_.triple.tr_subject, pat_ses, &pat_first, var_ses, &var_first, 0);
+		spart_dump_json_triple_term (tree->_.triple.tr_predicate, pat_ses, &pat_first, var_ses, &var_first, 0);
+		spart_dump_json_triple_term (tree->_.triple.tr_object, pat_ses, &pat_first, var_ses, &var_first, 1);
+
+		var_str = strses_string (var_ses);
+		dk_free_box ((caddr_t) var_ses);
+		dk_set_push (&((caddr_t *)st->st_output->data)[1], var_str);
+
+		pat_str = strses_string (pat_ses);
+		dk_free_box ((caddr_t) pat_ses);
+		dk_set_push (&((caddr_t *)st->st_output->data)[1], pat_str);
+
+		snprintf (numbuf, sizeof (numbuf), "%ld", tree->_.triple.src_serial);
+		dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string (numbuf));
+		ST_SET(st_state, 0);
+		est = spart_estimate(st);
+		snprintf (numbuf, sizeof (numbuf), "%ld", est);
+		dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string (numbuf));
+	      }
               spart_dump (est, ses, indent+2, "ESTIMATE", 0, st);
               spart_dump (tree->_.triple.selid, ses, indent+2, "SELECT ID", 0, st);
               spart_dump (tree->_.triple.tabid, ses, indent+2, "TABLE ID", 0, st);
