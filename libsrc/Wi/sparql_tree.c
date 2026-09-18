@@ -5352,12 +5352,15 @@ spart_dump_json_lit_value (const SPART *lit_node, dk_session_t *ses)
   caddr_t val = lit_node->_.lit.val;
   dtp_t dtp = DV_TYPE_OF (val);
   char numbuf[0x100];
-  if (IS_STRING_DTP (dtp)) { SES_PRINT (ses, "\\\""); SES_PRINT (ses, (char *) val); SES_PRINT (ses, "\\\""); }
+  int quoted = IS_STRING_DTP (dtp) || lit_node->_.lit.datatype || lit_node->_.lit.language;
+  if (quoted) SES_PRINT (ses, "\\\"");
+  if (IS_STRING_DTP (dtp)) SES_PRINT (ses, (char *) val);
   else if (DV_LONG_INT == dtp) { snprintf (numbuf, sizeof (numbuf), BOXINT_FMT, unbox (val)); SES_PRINT (ses, numbuf); }
   else if (DV_SINGLE_FLOAT == dtp) { snprintf (numbuf, sizeof (numbuf), "%g", (double) unbox_float (val)); SES_PRINT (ses, numbuf); }
   else if (DV_DOUBLE_FLOAT == dtp) { snprintf (numbuf, sizeof (numbuf), "%g", unbox_double (val)); SES_PRINT (ses, numbuf); }
   else if (DV_NUMERIC == dtp) { numeric_to_string ((numeric_t) val, numbuf, sizeof (numbuf)); SES_PRINT (ses, numbuf); }
-  else { snprintf (numbuf, sizeof (numbuf), "\\\"<unsupported literal type %s>\\\"", dv_type_title (dtp)); SES_PRINT (ses, numbuf); }
+  else { snprintf (numbuf, sizeof (numbuf), "<unsupported literal type %s>", dv_type_title (dtp)); SES_PRINT (ses, numbuf); }
+  if (quoted) SES_PRINT (ses, "\\\"");
   if (lit_node->_.lit.datatype) { SES_PRINT (ses, "^^<"); SES_PRINT (ses, (char *) lit_node->_.lit.datatype); SES_PRINT (ses, ">"); }
   if (lit_node->_.lit.language) { SES_PRINT (ses, "@"); SES_PRINT (ses, (char *) lit_node->_.lit.language); }
 }
