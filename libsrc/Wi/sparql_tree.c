@@ -5629,6 +5629,8 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
             {
               caddr_t ft_type = tree->_.triple.ft_type;
               int64 est;
+              caddr_t xx[2], est_box;
+              BOX_AUTO (est_box, xx, sizeof (boxint), DV_LONG_INT);
               ST_INC(st_triple_count);
               snprintf (buf, sizeof (buf), "TRIPLE:");
               SES_PRINT (ses, buf);
@@ -5672,7 +5674,8 @@ spart_dump (const void *tree_arg, dk_session_t *ses, int indent, const char *tit
 		snprintf (numbuf, sizeof (numbuf), "%ld", est);
 		dk_set_push (&((caddr_t *)st->st_output->data)[1], box_string (numbuf));
 	      }
-              spart_dump (est, ses, indent+2, "ESTIMATE", 0, st);
+              *(int64 *) est_box = est;
+              spart_dump (est_box, ses, indent+2, "ESTIMATE", 0, st);
               spart_dump (tree->_.triple.selid, ses, indent+2, "SELECT ID", 0, st);
               spart_dump (tree->_.triple.tabid, ses, indent+2, "TABLE ID", 0, st);
               break;
